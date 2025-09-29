@@ -1,6 +1,6 @@
 # Prototipos de Visión Artifical
 TODO: Description.
-# Autores
+## Autores
 - Juan Diego Gallego Nicolás.
 - Óscar Vera López.
 - Josep Barberà Reverté.
