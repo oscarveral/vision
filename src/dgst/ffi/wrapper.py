@@ -3,7 +3,8 @@ import numpy as np
 from ctypes import cdll, c_uint32, c_size_t, POINTER
 from os import path
 
-libfilter = cdll.LoadLibrary(path.join(path.dirname(__file__), "libfilters.so"))
+lib_path = os.path.join(os.path.dirname(__file__), "libfilters.so")
+libfilter = cdll.LoadLibrary(lib_path)
 
 libfilter.sum_array.argtypes = (POINTER(c_uint32), c_size_t)
 libfilter.sum_array.restype = c_uint32
