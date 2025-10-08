@@ -1,1 +1,1 @@
-"""Utilities for mi_proyecto."""
+"""Utilities."""

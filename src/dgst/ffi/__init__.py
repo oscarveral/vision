@@ -1,9 +1,12 @@
 """Foreign Function Interface for filters."""
 
-makefile_dir = os.path.dirname(__file__)
+import os
+import subprocess
 
+# Run the Makefile to compile the C library.
+makefile_dir = os.path.dirname(__file__)
 makefile_path = os.path.join(makefile_dir, 'Makefile')
-print(f"Makefile path: {makefile_path}")
+# Only run make if the Makefile exists.
 if os.path.exists(makefile_path):
     try:
         subprocess.run(['make', '--quiet', '-C', makefile_dir], check=True)
