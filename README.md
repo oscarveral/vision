@@ -1,4 +1,5 @@
-# Prototipos de Visión Artifical
+# Detección Genial de Señales de Tráfico (DGST)
+
 TODO: Description.
 ## Autores
  Prototipos de Visión Artificial
