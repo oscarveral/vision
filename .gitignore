@@ -215,3 +215,6 @@ __marimo__/
 # FFI
 src/dgst/ffi/*.so*
 src/dgst/ffi/*.o
+
+# JetBrains
+.idea
