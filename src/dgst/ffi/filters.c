@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include "filters.h"
 
@@ -13,20 +14,25 @@ uint32_t sum_array(const uint32_t* array, size_t length) {
 	return sum;
 }
 
-int box_filter(const uint8_t* input, uint8_t* output, size_t width, size_t height, size_t filter_size) {
+/// ---------------------------------------------------------------
+/// Implementation of box_filter function
+/// ---------------------------------------------------------------
+
+uint32_t box_filter(const uint8_t* input, uint8_t* output, size_t width, size_t height, size_t filter_size) {
+    // Validate filter_size.
     if (filter_size % 2 == 0 || filter_size < 1) {
-        return -1; // Filter size must be a positive odd number
+        return -1;
+    }
+    // Limit image size to prevent overflows and excessive memory use.
+    if (width*height > 4000000UL) {
+        return -2;
     }
 
-    if (width*height > 4e6) {
-        return -2; // Input image too large
-    }
-
-    // Precomute cumulative sum for efficiency
+    // Precomute cumulative sum for efficiency.
     size_t half_size = filter_size / 2;
     uint32_t* cum_sum = (uint32_t*) calloc((width + 1) * (height + 1), sizeof(uint32_t));
     if (!cum_sum) {
-        return -3; // Memory allocation failure
+        return -3;
     }
 
     for (size_t y = 1; y <= height; y++) {
@@ -38,8 +44,7 @@ int box_filter(const uint8_t* input, uint8_t* output, size_t width, size_t heigh
         }
     }
 
-    // Apply box filter using the cumulative sum and mirror padding
-
+    // Apply box filter using the cumulative sum and mirror padding.
     for (size_t y = 0; y < height; y++) {
         for (size_t x = 0; x < width; x++) {
             size_t x1 = (x < half_size) ? 0 : x - half_size;
@@ -58,5 +63,5 @@ int box_filter(const uint8_t* input, uint8_t* output, size_t width, size_t heigh
     }
 
     free(cum_sum);
-    return 0; // Success
+    return 0;
 }
