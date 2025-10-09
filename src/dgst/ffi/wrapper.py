@@ -21,7 +21,7 @@ def sum_array(array: np.ndarray) -> int:
 
 # Function box_filter from the C library.
 libfilter.box_filter.argtypes = (ffi.POINTER(ffi.c_uint8), ffi.POINTER(ffi.c_uint8), ffi.c_size_t, ffi.c_size_t, ffi.c_size_t)
-libfilter.box_filter.restype = ffi.c_uint32
+libfilter.box_filter.restype = ffi.c_int32
 
 # Python wrapper for the box_filter function.
 def box_filter(input_image: np.ndarray, filter_size: int) -> np.ndarray:

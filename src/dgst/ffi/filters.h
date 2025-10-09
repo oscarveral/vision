@@ -56,7 +56,7 @@ uint32_t sum_array(const uint32_t *array, size_t length);
  * @warning Undefined behavior if input/output pointers are NULL or if
  *          output buffer is smaller than width * height bytes.
  */
-uint32_t box_filter(const uint8_t *input, uint8_t *output, size_t width,
+int32_t box_filter(const uint8_t *input, uint8_t *output, size_t width,
                     size_t height, size_t filter_size);
 
 /**

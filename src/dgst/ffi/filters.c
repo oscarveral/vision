@@ -1,7 +1,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <math.h>
-#include <string.h>
 
 #include "filters.h"
 
@@ -21,7 +20,7 @@ uint32_t sum_array(const uint32_t* array, size_t length) {
 /// Implementation of box_filter function
 /// ---------------------------------------------------------------
 
-uint32_t box_filter(const uint8_t* input, uint8_t* output, size_t width, size_t height, size_t filter_size) {
+int32_t box_filter(const uint8_t* input, uint8_t* output, size_t width, size_t height, size_t filter_size) {
     // Validate filter_size.
     if (filter_size % 2 == 0 || filter_size < 1) {
         return -1;
@@ -74,11 +73,11 @@ uint32_t box_filter(const uint8_t* input, uint8_t* output, size_t width, size_t 
 /// ---------------------------------------------------------------
 
 static void generate_gaussian_kernel(float* kernel, size_t size, float sigma) {
-    int half_size = (int)(size / 2);
+    int32_t half_size = (int32_t)(size / 2);
     float sum = 0.0f;
     
     // Generate kernel values
-    for (int i = 0; i < (int)size; i++) {
+    for (int32_t i = 0; i < (int32_t)size; i++) {
         float x = (float)(i - half_size);
         kernel[i] = expf(-(x * x) / (2.0f * sigma * sigma));
         sum += kernel[i];
@@ -115,38 +114,46 @@ int32_t gaussian_filter(const uint8_t* input, uint8_t* output, size_t width, siz
         return -3;
     }
     
-    // Allocate memory for kernel and temporary image.
+    // Allocate memory for kernel, normalized input, and temporary image.
     float* kernel = (float*)malloc(kernel_size * sizeof(float));
-    uint8_t* temp_image = (uint8_t*)malloc(width * height * sizeof(uint8_t));
+    float* normalized_input = (float*)malloc(width * height * sizeof(float));
+    float* temp_image = (float*)malloc(width * height * sizeof(float));
     
-    if (!kernel || !temp_image) {
+    if (!kernel || !normalized_input || !temp_image) {
         free(kernel);
+        free(normalized_input);
         free(temp_image);
         return -4;
+    }
+    
+    // Preprocess: Convert uint8_t input to normalized float [0.0, 1.0].
+    #pragma omp parallel for if (width > 64)
+    for (size_t i = 0; i < width * height; i++) {
+        normalized_input[i] = (float)input[i] / 255.0f;
     }
     
     // Generate Gaussian kernel.
     generate_gaussian_kernel(kernel, kernel_size, sigma);
     
-    int half_size = (int)(kernel_size / 2);
+    int32_t half_size = (int32_t)(kernel_size / 2);
     
-    // First pass: horizontal convolution (input -> temp_image).
+    // First pass: horizontal convolution (normalized_input -> temp_image).
     #pragma omp parallel for if(height > 64)
     for (size_t y = 0; y < height; y++) {
         for (size_t x = 0; x < width; x++) {
             float sum = 0.0f;
             
-            for (int k = 0; k < (int)kernel_size; k++) {
-                int src_x = (int)x + k - half_size;
+            for (size_t k = 0; k < kernel_size; k++) {
+                int32_t src_x = (int32_t)x + (int32_t)k - half_size;
                 
                 // Mirror boundary conditions.
                 if (src_x < 0) src_x = -src_x;
-                else if (src_x >= (int)width) src_x = 2 * (int)width - src_x - 1;
+                else if (src_x >= (int32_t)width) src_x = 2 * (int32_t)width - src_x - 1;
                 
-                sum += (float)input[y * width + src_x] * kernel[k];
+                sum += normalized_input[y * width + (size_t)src_x] * kernel[k];
             }
             
-            temp_image[y * width + x] = (uint8_t)(sum + 0.5f);
+            temp_image[y * width + x] = sum;
         }
     }
 
@@ -156,22 +163,27 @@ int32_t gaussian_filter(const uint8_t* input, uint8_t* output, size_t width, siz
         for (size_t y = 0; y < height; y++) {
             float sum = 0.0f;
             
-            for (int k = 0; k < (int)kernel_size; k++) {
-                int src_y = (int)y + k - half_size;
+            for (size_t k = 0; k < kernel_size; k++) {
+                int32_t src_y = (int32_t)y + (int32_t)k - half_size;
                 
                 // Mirror boundary conditions.
                 if (src_y < 0) src_y = -src_y;
-                else if (src_y >= (int)height) src_y = 2 * (int)height - src_y - 1;
+                else if (src_y >= (int32_t)height) src_y = 2 * (int32_t)height - src_y - 1;
                 
-                sum += (float)temp_image[src_y * width + x] * kernel[k];
+                sum += temp_image[(size_t)src_y * width + x] * kernel[k];
             }
             
-            output[y * width + x] = (uint8_t)(sum + 0.5f); // Round to nearest
+            // Convert back to uint8_t [0, 255] and clamp to valid range.
+            float normalized_result = sum * 255.0f;
+            if (normalized_result < 0.0f) normalized_result = 0.0f;
+            if (normalized_result > 255.0f) normalized_result = 255.0f;
+            output[y * width + x] = (uint8_t)(normalized_result + 0.5f);
         }
     }
     
-    // Clean up
+    // Clean up.
     free(kernel);
+    free(normalized_input);
     free(temp_image);
     
     return 0;

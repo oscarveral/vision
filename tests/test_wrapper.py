@@ -10,7 +10,7 @@ from dgst.ffi.wrapper import sum_array
 from dgst.ffi.wrapper import box_filter
 from dgst.ffi.wrapper import gaussian_filter
 
-TEST_IMAGE_PATH = "images/lenna.png"
+TEST_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "images/lenna.png")
 
 # ---------------------------------------------------------------
 # Tests for sum_array.
@@ -52,20 +52,6 @@ def test_box_filter_opencv_equivalence():
 
     filter_size = 5
     
-    # Custom box filter
-    start_time = time.time()
-    filtered_custom = box_filter(img, filter_size=filter_size)
-    custom_time = time.time() - start_time
-
-    # OpenCV box filter
-    start_time = time.time()
-    kernel = np.ones((filter_size, filter_size), np.float32) / (filter_size * filter_size)
-    filtered_cv = cv2.filter2D(img, -1, kernel)
-    opencv_time = time.time() - start_time
-
-    print(f"\n\nCustom box_filter time: {custom_time:.6f}s")
-    print(f"OpenCV filter2D time: {opencv_time:.6f}s\n")
-
     # Compare results.
     filtered_custom = box_filter(img, filter_size=filter_size)
     kernel = np.ones((filter_size, filter_size), np.float32) / (filter_size * filter_size)
@@ -93,19 +79,6 @@ def test_gaussian_filter_opencv_equivalence():
 
     sigma = 1.5
     
-    # Custom Gaussian filter
-    start_time = time.time()
-    filtered_custom = gaussian_filter(img, sigma=sigma)
-    custom_time = time.time() - start_time
-
-    # OpenCV Gaussian filter
-    start_time = time.time()
-    filtered_cv = cv2.GaussianBlur(img, (0, 0), sigmaX=sigma)
-    opencv_time = time.time() - start_time
-
-    print(f"\n\nCustom gaussian_filter time: {custom_time:.6f}s")
-    print(f"OpenCV GaussianBlur time: {opencv_time:.6f}s\n")
-
     # Compare results.
     filtered_custom = gaussian_filter(img, sigma=sigma)
     filtered_cv = cv2.GaussianBlur(img, (0, 0), sigmaX=sigma)
