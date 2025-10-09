@@ -8,6 +8,7 @@ import os
 
 from dgst.ffi.wrapper import sum_array
 from dgst.ffi.wrapper import box_filter
+from dgst.ffi.wrapper import gaussian_filter
 
 TEST_IMAGE_PATH = "images/lenna.png"
 
@@ -62,12 +63,51 @@ def test_box_filter_opencv_equivalence():
     filtered_cv = cv2.filter2D(img, -1, kernel)
     opencv_time = time.time() - start_time
 
-    print(f"Custom box_filter time: {custom_time:.6f}s")
-    print(f"OpenCV filter2D time: {opencv_time:.6f}s")
+    print(f"\n\nCustom box_filter time: {custom_time:.6f}s")
+    print(f"OpenCV filter2D time: {opencv_time:.6f}s\n")
 
     # Compare results.
     filtered_custom = box_filter(img, filter_size=filter_size)
     kernel = np.ones((filter_size, filter_size), np.float32) / (filter_size * filter_size)
     filtered_cv = cv2.filter2D(img, -1, kernel)
 
-    assert np.allclose(filtered_custom, filtered_cv, atol=5)
+    assert np.allclose(filtered_custom, filtered_cv, atol=5) 
+
+# ---------------------------------------------------------------
+# Tests for gaussian_filter.
+# ---------------------------------------------------------------
+
+def test_gaussian_filter_wrong_dtype():
+    img = np.ones((10, 10), dtype=np.float32)
+    with pytest.raises(ValueError):
+        gaussian_filter(img, sigma=1.0)
+
+def test_gaussian_filter_wrong_shape():
+    img = np.ones((10, 10, 3), dtype=np.uint8)
+    with pytest.raises(ValueError):
+        gaussian_filter(img, sigma=1.0)
+
+def test_gaussian_filter_opencv_equivalence():
+    img = cv2.imread(TEST_IMAGE_PATH, cv2.IMREAD_GRAYSCALE)
+    assert img is not None, "images/lenna.png not found"
+
+    sigma = 1.5
+    
+    # Custom Gaussian filter
+    start_time = time.time()
+    filtered_custom = gaussian_filter(img, sigma=sigma)
+    custom_time = time.time() - start_time
+
+    # OpenCV Gaussian filter
+    start_time = time.time()
+    filtered_cv = cv2.GaussianBlur(img, (0, 0), sigmaX=sigma)
+    opencv_time = time.time() - start_time
+
+    print(f"\n\nCustom gaussian_filter time: {custom_time:.6f}s")
+    print(f"OpenCV GaussianBlur time: {opencv_time:.6f}s\n")
+
+    # Compare results.
+    filtered_custom = gaussian_filter(img, sigma=sigma)
+    filtered_cv = cv2.GaussianBlur(img, (0, 0), sigmaX=sigma)
+
+    assert np.allclose(filtered_custom, filtered_cv, atol=10)

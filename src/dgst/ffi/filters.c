@@ -1,5 +1,8 @@
 #include <stdint.h>
 #include <stdlib.h>
+#include <math.h>
+#include <string.h>
+
 #include "filters.h"
 
 /// ---------------------------------------------------------------
@@ -63,5 +66,113 @@ uint32_t box_filter(const uint8_t* input, uint8_t* output, size_t width, size_t 
     }
 
     free(cum_sum);
+    return 0;
+}
+
+/// ---------------------------------------------------------------
+/// Helper function to generate 1D Gaussian kernel
+/// ---------------------------------------------------------------
+
+static void generate_gaussian_kernel(float* kernel, size_t size, float sigma) {
+    int half_size = (int)(size / 2);
+    float sum = 0.0f;
+    
+    // Generate kernel values
+    for (int i = 0; i < (int)size; i++) {
+        float x = (float)(i - half_size);
+        kernel[i] = expf(-(x * x) / (2.0f * sigma * sigma));
+        sum += kernel[i];
+    }
+    
+    // Normalize kernel
+    for (size_t i = 0; i < size; i++) {
+        kernel[i] /= sum;
+    }
+}
+
+/// ---------------------------------------------------------------
+/// Implementation of gaussian_filter function
+/// ---------------------------------------------------------------
+
+int32_t gaussian_filter(const uint8_t* input, uint8_t* output, size_t width, size_t height, float sigma) {
+    // Validate input parameters.
+    if (!input || !output || width == 0 || height == 0 || sigma <= 0.0f) {
+        return -1;
+    }
+    
+    // Calculate kernel size (3*sigma rule, ensure odd size).
+    size_t kernel_size = (size_t)(6.0f * sigma + 1.0f);
+    if (kernel_size % 2 == 0) kernel_size++;
+    if (kernel_size < 3) kernel_size = 3;
+    
+    // Limit kernel size to prevent excessive memory use.
+    if (kernel_size > 101) {
+        return -2;
+    }
+    
+    // Limit image size.
+    if (width * height > 16000000UL) {
+        return -3;
+    }
+    
+    // Allocate memory for kernel and temporary image.
+    float* kernel = (float*)malloc(kernel_size * sizeof(float));
+    uint8_t* temp_image = (uint8_t*)malloc(width * height * sizeof(uint8_t));
+    
+    if (!kernel || !temp_image) {
+        free(kernel);
+        free(temp_image);
+        return -4;
+    }
+    
+    // Generate Gaussian kernel.
+    generate_gaussian_kernel(kernel, kernel_size, sigma);
+    
+    int half_size = (int)(kernel_size / 2);
+    
+    // First pass: horizontal convolution (input -> temp_image).
+    #pragma omp parallel for if(height > 64)
+    for (size_t y = 0; y < height; y++) {
+        for (size_t x = 0; x < width; x++) {
+            float sum = 0.0f;
+            
+            for (int k = 0; k < (int)kernel_size; k++) {
+                int src_x = (int)x + k - half_size;
+                
+                // Mirror boundary conditions.
+                if (src_x < 0) src_x = -src_x;
+                else if (src_x >= (int)width) src_x = 2 * (int)width - src_x - 1;
+                
+                sum += (float)input[y * width + src_x] * kernel[k];
+            }
+            
+            temp_image[y * width + x] = (uint8_t)(sum + 0.5f);
+        }
+    }
+
+    // Second pass: vertical convolution (temp_image -> output).
+    #pragma omp parallel for if(width > 64)
+    for (size_t x = 0; x < width; x++) {
+        for (size_t y = 0; y < height; y++) {
+            float sum = 0.0f;
+            
+            for (int k = 0; k < (int)kernel_size; k++) {
+                int src_y = (int)y + k - half_size;
+                
+                // Mirror boundary conditions.
+                if (src_y < 0) src_y = -src_y;
+                else if (src_y >= (int)height) src_y = 2 * (int)height - src_y - 1;
+                
+                sum += (float)temp_image[src_y * width + x] * kernel[k];
+            }
+            
+            output[y * width + x] = (uint8_t)(sum + 0.5f); // Round to nearest
+        }
+    }
+    
+    // Clean up
+    free(kernel);
+    free(temp_image);
+    
     return 0;
 }
