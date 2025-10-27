@@ -223,3 +223,6 @@ src/dgst/ffi/__objs__
 
 # Data files
 data/
+
+# Via notebooks
+06_RectasRANSACyHT_C.ipynb
