@@ -213,8 +213,13 @@ marimo/_lsp/
 __marimo__/
 
 # FFI
-src/dgst/ffi/*.so*
-src/dgst/ffi/*.o
+src/dgst/ffi/__objs__
 
-# Notebooks via
-06_RectasRANSACyHT_C.ipynb
+# JetBrains
+.idea
+
+# VSCode
+.vscode
+
+# Data files
+data/

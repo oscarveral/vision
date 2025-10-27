@@ -5,7 +5,28 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "black>=25.9.0",
     "numpy>=2.3.3",
     "opencv-python>=4.11.0.86",
     "pytest>=8.4.2",
 ]
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = [ "dgst" ]
