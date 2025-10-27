@@ -3,11 +3,12 @@ import numpy as np
 from typing import List, Optional, Dict, Any
 from abc import ABC, abstractmethod
 
-from dgst.ffi.wrapper import box_filter, gaussian_filter
+from dgst.ffi.wrapper import box_filter, gaussian_filter, canny_edge_detection
 
 class ProcessingTechnique:
     BOX_FILTER = "box_filter"
     GAUSSIAN_FILTER = "gaussian_filter"
+    CANNY_EDGE_DETECTION = "canny_edge_detection"
     GRAYSCALE = "grayscale"
 
 
@@ -80,19 +81,42 @@ class GaussianFilterStep(ProcessingStep):
         }
 
 
+class CannyEdgeDetectionStep(ProcessingStep):
+    """Apply Canny edge detection using custom C implementation."""
+    
+    def __init__(self, low_threshold: float = 50.0, high_threshold: float = 150.0):
+        if high_threshold < low_threshold:
+            raise ValueError("high_threshold must be >= low_threshold")
+        if low_threshold < 0:
+            raise ValueError("low_threshold must be >= 0")
+        self.low_threshold = low_threshold
+        self.high_threshold = high_threshold
+    
+    def process(self, image: np.ndarray) -> np.ndarray:
+        return canny_edge_detection(image, self.low_threshold, self.high_threshold)
+    
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": ProcessingTechnique.CANNY_EDGE_DETECTION,
+            "low_threshold": self.low_threshold,
+            "high_threshold": self.high_threshold
+        }
+
+
 class ImageProcessor:
-    """Flexible image processor for chaining box and Gaussian filters.
+    """Flexible image processor for chaining filters and edge detection.
     
     Example:
         >>> processor = ImageProcessor()
-        >>> processor.add_box_filter(filter_size=5)
-        >>> processor.add_gaussian_filter(sigma=2.0)
+        >>> processor.add_gaussian_filter(sigma=1.4)
+        >>> processor.add_canny_edge_detection(low_threshold=50, high_threshold=150)
         >>> result = processor.process(image)
         
     Or using the builder pattern:
         >>> processor = (ImageProcessor()
-        ...     .add_box_filter(filter_size=5)
-        ...     .add_gaussian_filter(sigma=2.0))
+        ...     .add_grayscale()
+        ...     .add_gaussian_filter(sigma=1.4)
+        ...     .add_canny_edge_detection(low_threshold=50, high_threshold=150))
         >>> result = processor.process(image)
     """
     
@@ -143,6 +167,21 @@ class ImageProcessor:
             Self for method chaining
         """
         return self.add_step(GaussianFilterStep(sigma))
+    
+    def add_canny_edge_detection(self, low_threshold: float = 50.0, 
+                                  high_threshold: float = 150.0) -> 'ImageProcessor':
+        """Add Canny edge detection step.
+        
+        Note: For best results, apply Gaussian smoothing before Canny edge detection.
+        
+        Args:
+            low_threshold: Lower threshold for hysteresis (weak edges)
+            high_threshold: Upper threshold for hysteresis (strong edges)
+            
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(CannyEdgeDetectionStep(low_threshold, high_threshold))
     
     def process(self, image: np.ndarray, 
                 keep_intermediate: bool = False) -> np.ndarray:
