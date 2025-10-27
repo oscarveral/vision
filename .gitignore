@@ -220,3 +220,6 @@ src/dgst/ffi/__objs__
 
 # VSCode
 .vscode
+
+# Data files
+data/
