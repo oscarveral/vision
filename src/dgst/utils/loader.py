@@ -1,8 +1,9 @@
 import os
-
 import cv2
 import json
 import numpy as np
+
+from src.dgst import DATA_ROOT
 
 class RegionOfInterest:
     def __init__(
@@ -20,9 +21,13 @@ class RegionOfInterest:
     def __repr__(self):
         return f"RegionOfInterest(p1={self.p1}, p2={self.p2}, p3={self.p3}, p4={self.p4})"
 
+class Image: 
+    def __init__(self, data: np.ndarray, rois: list[RegionOfInterest]):
+        self.data = data
+        self.rois = rois
 
 class DataLoader:
-    def __init__(self, path=None):
+    def __init__(self, path=DATA_ROOT):
         self._path = path
 
 
@@ -68,4 +73,8 @@ class DataLoader:
                         result.append(roi)
         return result
 
-
+    def load(self, number: int) -> Image:
+        image = self.load_image(number)
+        rois = self.load_metadata(number)
+        return Image(data=image, rois=rois)
+    
