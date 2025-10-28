@@ -17,13 +17,13 @@ from dgst.utils.processor import ImageProcessor
 def main():
    
     loader = DataLoader(DATA_ROOT + "/single_frames")
-    image = loader.load(31)
+    image = loader.load(99839)
 
     processor = (ImageProcessor()
-        .add_kannala_brandt_undistortion(image.calibration)
+        .add_kannala_brandt_undistortion()
     )
 
-    image = processor.process_image(image)
+    image = processor.process(image)
 
     image.data = cv2.resize(image.data, (0,0), fx=0.3, fy=0.3)
 

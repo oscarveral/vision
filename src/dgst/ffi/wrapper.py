@@ -116,3 +116,72 @@ def canny_edge_detection(input_image: np.ndarray, low_threshold: float, high_thr
         raise RuntimeError(f"Canny edge detection failed in C library with error code {result}.")
 
     return output_image
+
+
+# Function kannala_brandt_undistort from the C library.
+libfilter.kannala_brandt_undistort.argtypes = (
+    ffi.POINTER(ffi.c_uint8),
+    ffi.POINTER(ffi.c_uint8),
+    ffi.c_size_t,
+    ffi.c_size_t,
+    ffi.c_size_t,
+    ffi.POINTER(ffi.c_float),
+    ffi.POINTER(ffi.c_float),
+)
+libfilter.kannala_brandt_undistort.restype = ffi.c_int32
+
+
+# Python wrapper for the kannala_brandt_undistort function.
+def kannala_brandt_undistort(input_image: np.ndarray, intrinsics_3x3: np.ndarray, 
+                              distortion_4: np.ndarray) -> np.ndarray:
+    """Apply Kannala-Brandt fisheye undistortion to an image using the C function.
+    
+    Args:
+        input_image: Input image as uint8 numpy array (grayscale or RGB)
+        intrinsics_3x3: Camera intrinsic matrix (3x3) containing [fx, 0, cx; 0, fy, cy; 0, 0, 1]
+        distortion_4: Array of 4 distortion coefficients [k1, k2, k3, k4]
+    
+    Returns:
+        Undistorted image with same shape as input
+    """
+    if input_image.dtype != np.uint8:
+        raise ValueError("Input image must be of type uint8.")
+    
+    if len(input_image.shape) == 2:
+        # Grayscale image
+        height, width = input_image.shape
+        channels = 1
+    elif len(input_image.shape) == 3:
+        # Color image
+        height, width, channels = input_image.shape
+        if channels != 3:
+            raise ValueError("Color images must have 3 channels (RGB/BGR).")
+    else:
+        raise ValueError("Input image must be a 2D (grayscale) or 3D (color) array.")
+    
+    if intrinsics_3x3.shape != (3, 3):
+        raise ValueError("Intrinsics matrix must be 3x3.")
+    
+    if distortion_4.shape != (4,):
+        raise ValueError("Distortion coefficients must have 4 elements.")
+    
+    # Ensure contiguous arrays
+    input_image = np.ascontiguousarray(input_image)
+    intrinsics_flat = np.ascontiguousarray(intrinsics_3x3.flatten().astype(np.float32))
+    distortion_flat = np.ascontiguousarray(distortion_4.astype(np.float32))
+    
+    output_image = np.zeros_like(input_image)
+    
+    c_input = input_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
+    c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
+    c_intrinsics = intrinsics_flat.ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_distortion = distortion_flat.ctypes.data_as(ffi.POINTER(ffi.c_float))
+    
+    result = libfilter.kannala_brandt_undistort(
+        c_input, c_output, width, height, channels, c_intrinsics, c_distortion
+    )
+    
+    if result != 0:
+        raise RuntimeError(f"Kannala-Brandt undistortion failed in C library with error code {result}.")
+    
+    return output_image

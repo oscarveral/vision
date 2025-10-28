@@ -34,8 +34,7 @@
  * @warning Undefined behavior if input/output pointers are NULL or if
  *          output buffer is smaller than width * height bytes.
  */
-int32_t box_filter(const uint8_t *input, uint8_t *output, size_t width,
-                    size_t height, size_t filter_size);
+int32_t box_filter(const uint8_t* input, uint8_t* output, size_t width, size_t height, size_t filter_size);
 
 /**
  * @brief Applies a Gaussian blur filter to a 2D grayscale image using separable convolution.
@@ -72,8 +71,7 @@ int32_t box_filter(const uint8_t *input, uint8_t *output, size_t width,
  * @warning Undefined behavior if input/output pointers are NULL or if
  *          output buffer is smaller than width * height bytes.
  */
-int32_t gaussian_filter(const uint8_t *input, uint8_t *output, size_t width,
-                       size_t height, float sigma);
+int32_t gaussian_filter(const uint8_t* input, uint8_t* output, size_t width, size_t height, float sigma);
 
 /**
  * @brief Applies Canny edge detection algorithm to a pre-smoothed grayscale image.
@@ -126,7 +124,43 @@ int32_t gaussian_filter(const uint8_t *input, uint8_t *output, size_t width,
  *          output buffer is smaller than width * height bytes.
  *          For best results, pre-smooth the input image with Gaussian filter.
  */
-int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width, 
-                             size_t height, float low_threshold, float high_threshold);                    
+int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width, size_t height, float low_threshold, float high_threshold);
+
+/**
+ * @brief Applies Kannala-Brandt fisheye undistortion to a grayscale or color image.
+ *
+ * This function undistorts fisheye camera images using the Kannala-Brandt camera model.
+ * It generates undistortion maps and applies remapping with bilinear interpolation.
+ *
+ * @param input Pointer to the input image data (row-major order).
+ *              Each pixel is a uint8_t value (0-255). Must not be NULL.
+ * @param output Pointer to the output buffer for undistorted image data.
+ *               Must be pre-allocated with size width * height * channels bytes.
+ *               Must not be NULL and should not overlap with input.
+ * @param width Width of the image in pixels. Must be > 0.
+ * @param height Height of the image in pixels. Must be > 0.
+ * @param channels Number of color channels (1 for grayscale, 3 for RGB). Must be 1 or 3.
+ * @param intrinsics_3x3 Pointer to camera intrinsic matrix (3x3, row-major order).
+ *                       Contains [fx, 0, cx; 0, fy, cy; 0, 0, 1].
+ *                       Must not be NULL.
+ * @param distortion_4 Pointer to array of 4 distortion coefficients [k1, k2, k3, k4].
+ *                     Must not be NULL.
+ *
+ * @return Returns 0 on success, negative values on error:
+ *         -1: Invalid parameters (NULL pointers, zero dimensions, invalid channels)
+ *         -2: Image too large (width * height > 16,000,000 pixels)
+ *         -3: Memory allocation failure for temporary buffers
+ *
+ * @note Implementation details:
+ *       - Uses Kannala-Brandt polynomial model for fisheye distortion
+ *       - Bilinear interpolation for remapping
+ *       - Parallelized with OpenMP for better performance
+ *       - Time complexity: O(width * height * channels)
+ *       - Space complexity: O(width * height * 2) for mapping tables
+ *
+ * @warning Undefined behavior if input/output pointers are NULL or if
+ *          output buffer is smaller than width * height * channels bytes.
+ */
+int32_t kannala_brandt_undistort(const uint8_t* input, uint8_t* output, size_t width, size_t height, size_t channels, const float* intrinsics_3x3, const float* distortion_4);
 
 #endif // DGST_FILTERS_H

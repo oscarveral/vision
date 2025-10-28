@@ -1,8 +1,8 @@
 TabWidth: 4
 IndentWidth: 4
 UseTab: Always
-Language: C
-Standard: C23
+Language: Cpp
+Standard: c++20
 PointerAlignment: Left
 AccessModifierOffset: -2
 AlignAfterOpenBracket: false
