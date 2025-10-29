@@ -6,28 +6,6 @@
 #include <stdint.h>
 
 /**
- * @brief Computes the sum of all elements in a uint32_t array.
- *
- * This function iterates through the provided array and calculates
- * the sum of all elements.
- *
- * @param array Pointer to the array of uint32_t values to sum.
- *              Must not be NULL if length > 0.
- * @param length Number of elements in the array.
- *
- * @return The sum of all elements in the array as a uint32_t.
- *         Returns 0 if array is NULL or length is 0.
- *
- * @note This function may overflow if the sum exceeds UINT32_MAX.
- *       For large arrays or values, consider using a larger data type.
- *
- * @warning Undefined behavior if array is NULL and length > 0.
- */
-uint32_t sum_array(const uint32_t *array, size_t length);
-
-// ...existing code...
-
-/**
  * @brief Applies a box filter to a 2D grayscale image using integral image
  * optimization.
  *
@@ -96,5 +74,59 @@ int32_t box_filter(const uint8_t *input, uint8_t *output, size_t width,
  */
 int32_t gaussian_filter(const uint8_t *input, uint8_t *output, size_t width,
                        size_t height, float sigma);
+
+/**
+ * @brief Applies Canny edge detection algorithm to a pre-smoothed grayscale image.
+ *
+ * This function implements the Canny edge detection algorithm optimized for better
+ * results and OpenCV compatibility:
+ * 1. Gradient calculation using Sobel operators (3x3 kernels for Gx and Gy)
+ * 2. Non-maximum suppression with linear interpolation along gradient direction
+ * 3. Double thresholding to classify strong/weak edges
+ * 4. Edge tracking by hysteresis using efficient stack-based approach
+ *
+ * NOTE: This function expects a pre-smoothed input image. For best results, apply
+ * Gaussian smoothing (sigma ~1.4) to the image before calling this function.
+ *
+ * @param input Pointer to the input grayscale image data (row-major order).
+ *              Should be pre-smoothed (e.g., with Gaussian filter).
+ *              Each pixel is a uint8_t value (0-255). Must not be NULL.
+ * @param output Pointer to the output buffer for binary edge map.
+ *               Must be pre-allocated with size width * height bytes.
+ *               Output is binary: 255 for detected edges, 0 for non-edges.
+ *               Must not be NULL and should not overlap with input.
+ * @param width Width of the image in pixels. Must be > 0.
+ * @param height Height of the image in pixels. Must be > 0.
+ * @param low_threshold Lower threshold for edge detection. Must be >= 0.0f.
+ *                      Pixels with gradient magnitude between low_threshold
+ *                      and high_threshold are classified as weak edges and
+ *                      only kept if connected to strong edges via hysteresis.
+ *                      Typical range: 20.0f to 50.0f.
+ * @param high_threshold Upper threshold for edge detection. Must be >= low_threshold.
+ *                       Pixels with gradient magnitude >= high_threshold are
+ *                       automatically classified as strong edges.
+ *                       Typical range: 50.0f to 150.0f.
+ *                       Recommended ratio: high_threshold = 2-3 * low_threshold.
+ *
+ * @return Returns 0 on success, negative values on error:
+ *         -1: Invalid parameters (NULL pointers, zero dimensions, high < low)
+ *         -2: Image too large (width * height > 16,000,000 pixels)
+ *         -3: Memory allocation failure for temporary buffers
+ *
+ * @note Algorithm implementation details:
+ *       - Sobel operators: 3x3 kernels for horizontal/vertical gradients
+ *       - Non-maximum suppression: Linear interpolation along gradient direction
+ *       - Hysteresis: Stack-based edge tracing with 8-connectivity
+ *       - Parallelized with OpenMP for gradient and NMS steps (if image > 64 pixels)
+ *       - Image boundaries (1-pixel border) are left as 0 (non-edges)
+ *       - Time complexity: O(width * height)
+ *       - Space complexity: O(width * height) for intermediate buffers
+ *
+ * @warning Undefined behavior if input/output pointers are NULL or if
+ *          output buffer is smaller than width * height bytes.
+ *          For best results, pre-smooth the input image with Gaussian filter.
+ */
+int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width, 
+                             size_t height, float low_threshold, float high_threshold);                    
 
 #endif // DGST_FILTERS_H
