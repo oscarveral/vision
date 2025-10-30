@@ -17,13 +17,13 @@ from dgst.utils.processor import ImageProcessor
 def main():
    
     loader = DataLoader(DATA_ROOT + "/single_frames")
-    image = loader.load(144)
+    image = loader.load(14)
 
     processor = (ImageProcessor()
         .add_kannala_brandt_undistortion()
         .add_grayscale()
         .add_gaussian_filter(sigma=1.4)
-        .add_canny_edge_detection(low_threshold=50, high_threshold=150)
+        .add_phase_congruency(nscale=4, norient=6)
     )
 
     image = processor.process(image)

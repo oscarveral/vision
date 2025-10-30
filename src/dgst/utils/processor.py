@@ -279,7 +279,7 @@ class ImageProcessor:
 
     def add_phase_congruency(self, nscale: int = 4, norient: int = 6,
                              min_wavelength: float = 3.0, mult: float = 2.1,
-                             sigma_onf: float = 0.55) -> 'ImageProcessor':
+                             sigma_onf: float = 0.55, use_own: bool = False) -> 'ImageProcessor':
         """Add phase congruency computation step.
 
         Args:
@@ -295,7 +295,7 @@ class ImageProcessor:
         """
         return self.add_step(PhaseCongruencyStep(nscale=nscale, norient=norient,
                                                  min_wavelength=min_wavelength, mult=mult,
-                                                 sigma_onf=sigma_onf))
+                                                 sigma_onf=sigma_onf, use_own=use_own))
     
     def process(self, image: Image, 
                 keep_intermediate: bool = False) -> Image:
