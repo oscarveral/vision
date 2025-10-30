@@ -163,4 +163,70 @@ int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width
  */
 int32_t kannala_brandt_undistort(const uint8_t* input, uint8_t* output, size_t width, size_t height, size_t channels, const float* intrinsics_3x3, const float* distortion_4);
 
+/**
+ * @brief Computes phase congruency map for edge and feature detection.
+ *
+ * This function implements a phase congruency algorithm inspired by Kovesi's method.
+ * It builds log-Gabor band-pass filters across multiple scales and orientations in
+ * the frequency domain, computes quadrature responses via FFT, forms local energy,
+ * and normalizes to produce a phase congruency map.
+ *
+ * Phase congruency is a dimensionless measure of feature significance that is invariant
+ * to changes in image brightness or contrast, making it more robust than traditional
+ * gradient-based edge detection methods.
+ *
+ * @param input Pointer to the input grayscale image data (row-major order).
+ *              Each pixel is a uint8_t value (0-255). Must not be NULL.
+ * @param output Pointer to the output buffer for phase congruency map.
+ *               Must be pre-allocated with size width * height bytes.
+ *               Output is uint8_t (0-255) with higher values indicating stronger features.
+ *               Must not be NULL and should not overlap with input.
+ * @param width Width of the image in pixels. Must be > 0 and a power of 2.
+ * @param height Height of the image in pixels. Must be > 0 and a power of 2.
+ * @param nscale Number of wavelet scales to use. Must be > 0.
+ *               More scales provide better feature detection but increase computation.
+ *               Typical value: 4.
+ * @param norient Number of filter orientations. Must be > 0.
+ *                More orientations provide better angular resolution but increase computation.
+ *                Typical value: 6.
+ * @param min_wavelength Wavelength of smallest scale filter in pixels. Must be > 0.
+ *                       Should be >= 3.0 to avoid aliasing.
+ *                       Typical value: 3.0.
+ * @param mult Scaling factor between successive filters. Must be > 1.0.
+ *             Each scale has wavelength mult times the previous scale.
+ *             Typical value: 2.1.
+ * @param sigma_onf Ratio of the standard deviation of the Gaussian describing
+ *                  the log Gabor filter's transfer function in the frequency
+ *                  domain to the filter center frequency. Must be > 0.
+ *                  Controls filter bandwidth. Typical value: 0.55.
+ * @param k Noise compensation gain factor. Must be >= 0.
+ *          Used in noise energy estimation. Typical value: 2.0.
+ * @param cut_off Fractional measure of frequency spread below which
+ *                phase congruency values get penalized. Typical value: 0.5.
+ * @param g Gain factor for sigmoid function used in noise compensation.
+ *          Typical value: 10.0.
+ * @param eps Small constant to avoid division by zero. Must be > 0.
+ *            Typical value: 1e-8.
+ *
+ * @return Returns 0 on success, negative values on error:
+ *         -1: Invalid parameters (NULL pointers, zero dimensions, non-power-of-2 size,
+ *             or invalid algorithm parameters)
+ *         -2: Image too large (width * height > 16,000,000 pixels)
+ *         -3: Memory allocation failure for temporary buffers
+ *
+ * @note Implementation details:
+ *       - Requires image dimensions to be powers of 2 for FFT
+ *       - Uses Cooley-Tukey FFT algorithm (no external dependencies)
+ *       - Log-Gabor filters provide better frequency coverage than Gabor
+ *       - Parallelized with OpenMP for major computation steps
+ *       - Time complexity: O(width * height * nscale * norient * log(width * height))
+ *       - Space complexity: O(width * height) for intermediate buffers
+ *       - Output is normalized and scaled to full uint8 range (0-255)
+ *
+ * @warning Undefined behavior if input/output pointers are NULL, if dimensions
+ *          are not powers of 2, or if output buffer is smaller than width * height bytes.
+ *          For best results, use power-of-2 dimensions (e.g., 256x256, 512x512).
+ */
+int32_t phase_congruency(const uint8_t* input, uint8_t* output, size_t width, size_t height, int32_t nscale, int32_t norient, float min_wavelength, float mult, float sigma_onf, float eps);
+
 #endif // DGST_FILTERS_H

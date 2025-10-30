@@ -3,8 +3,9 @@ import numpy as np
 from typing import List, Optional, Dict, Any
 from abc import ABC, abstractmethod
 
-from dgst.ffi.wrapper import box_filter, gaussian_filter, canny_edge_detection, kannala_brandt_undistort
-from dgst.utils.loader import Image, Calibration
+from dgst.filters.ffi import box_filter, gaussian_filter, canny_edge_detection, kannala_brandt_undistort, phase_congruency as pc_ffi
+from dgst.filters.python import phase_congruency as pc_python
+from dgst.utils.loader import Image
 
 class ProcessingTechnique:
     BOX_FILTER = "box_filter"
@@ -12,6 +13,7 @@ class ProcessingTechnique:
     CANNY_EDGE_DETECTION = "canny_edge_detection"
     GRAYSCALE = "grayscale"
     KANNALA_BRANDT_UNDISTORTION = "kannala_brandt_undistortion"
+    PHASE_CONGRUENCY = "phase_congruency"
 
 
 class ProcessingStep(ABC):
@@ -142,6 +144,49 @@ class KannalaBrandtUndistortionStep(ProcessingStep):
         return params
 
 
+class PhaseCongruencyStep(ProcessingStep):
+    """Compute phase congruency map (multi-scale, multi-orientation)."""
+
+    def __init__(self, nscale: int = 4, norient: int = 6,
+                 min_wavelength: float = 3.0, mult: float = 2.1,
+                 sigma_onf: float = 0.55, eps: float = 1e-4, use_own: bool = False):
+        if nscale < 1:
+            raise ValueError("nscale must be >= 1")
+        if norient < 1:
+            raise ValueError("norient must be >= 1")
+        self.nscale = nscale
+        self.norient = norient
+        self.min_wavelength = float(min_wavelength)
+        self.mult = float(mult)
+        self.sigma_onf = float(sigma_onf)
+        self.eps = float(eps)
+        self.use_own = use_own
+
+    def process(self, image: Image) -> Image:
+
+        func = pc_ffi if self.use_own else pc_python
+
+        image.data = func(image.data,
+                                 nscale=self.nscale,
+                                 norient=self.norient,
+                                 min_wavelength=self.min_wavelength,
+                                 mult=self.mult,
+                                 sigma_onf=self.sigma_onf,
+                                 eps=self.eps)
+
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": ProcessingTechnique.PHASE_CONGRUENCY,
+            "nscale": self.nscale,
+            "norient": self.norient,
+            "min_wavelength": self.min_wavelength,
+            "mult": self.mult,
+            "sigma_onf": self.sigma_onf,
+            "eps": self.eps
+        }
+
 class ImageProcessor:
     """Flexible image processor for chaining filters and edge detection.
     
@@ -231,6 +276,26 @@ class ImageProcessor:
             Self for method chaining
         """
         return self.add_step(KannalaBrandtUndistortionStep())
+
+    def add_phase_congruency(self, nscale: int = 4, norient: int = 6,
+                             min_wavelength: float = 3.0, mult: float = 2.1,
+                             sigma_onf: float = 0.55) -> 'ImageProcessor':
+        """Add phase congruency computation step.
+
+        Args:
+            nscale: Number of scales
+            norient: Number of orientations
+            min_wavelength: Smallest filter wavelength
+            mult: Scaling factor between successive wavelengths
+            sigma_onf: Bandwidth parameter for log-Gabor
+            to_uint8: If True, output will be uint8 scaled to 0-255
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(PhaseCongruencyStep(nscale=nscale, norient=norient,
+                                                 min_wavelength=min_wavelength, mult=mult,
+                                                 sigma_onf=sigma_onf))
     
     def process(self, image: Image, 
                 keep_intermediate: bool = False) -> Image:

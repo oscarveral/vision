@@ -32,9 +32,10 @@ int32_t gaussian_filter(const uint8_t* input, uint8_t* output, size_t width, siz
 	if (!input || !output || width == 0 || height == 0 || sigma <= 0.0f) {
 		return -1;
 	}
-
-	// Calculate kernel size (3*sigma rule, ensure odd size).
-	size_t kernel_size = (size_t)(6.0f * sigma + 1.0f);
+	
+	// Determine kernel size.
+	float span = ceilf(3.0f * sigma);
+	size_t kernel_size = (size_t)(2.0f * span + 1.0f);
 	if (kernel_size % 2 == 0)
 		kernel_size++;
 	if (kernel_size < 3)

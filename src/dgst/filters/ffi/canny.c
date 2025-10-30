@@ -20,10 +20,10 @@ int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width
 		return -2;
 	}
 
-	// Allocate memory for intermediate buffers.
-	float* gradient_magnitude = (float*)malloc(width * height * sizeof(float));
-	float* gradient_direction = (float*)malloc(width * height * sizeof(float));
-	uint8_t* nms			  = (uint8_t*)calloc(width * height, sizeof(uint8_t));
+	 // Allocate memory for intermediate buffers.
+	 float* gradient_magnitude = (float*)malloc(width * height * sizeof(float));
+	 float* gradient_direction = (float*)malloc(width * height * sizeof(float));
+	 float* nms = (float*)malloc(width * height * sizeof(float));
 
 	if (!gradient_magnitude || !gradient_direction || !nms) {
 		free(gradient_magnitude);
@@ -35,6 +35,7 @@ int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width
 	// Initialize buffers.
 	memset(gradient_magnitude, 0, width * height * sizeof(float));
 	memset(gradient_direction, 0, width * height * sizeof(float));
+	memset(nms, 0, width * height * sizeof(float));
 
 // Step 1: Calculate gradients using Sobel operators.
 #pragma omp parallel for if (width * height > 64)
@@ -77,7 +78,10 @@ int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width
 			float mag1, mag2;
 
 			// Linear interpolation along gradient direction.
-			if (abs_gx >= abs_gy) {
+			// Use strict greater-than to break ties in favor of the vertical
+			// branch when abs_gx == abs_gy (diagonal 45deg). This matches
+			// OpenCV's tie-breaking and reduces angle-dependent artifacts.
+			if (abs_gx > abs_gy) {
 				// More horizontal gradient direction.
 				float weight = (abs_gy > 0.0f) ? abs_gy / abs_gx : 0.0f;
 
@@ -103,9 +107,11 @@ int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width
 				mag2 = (1.0f - weight) * gradient_magnitude[(y - dy) * width + x] + weight * gradient_magnitude[(y - dy) * width + (x - dx)];
 			}
 
-			// Keep only if this pixel is a local maximum.
-			if (mag >= mag1 && mag >= mag2) {
-				nms[y * width + x] = (uint8_t)fminf(mag, 255.0f);
+			// Keep only if this pixel is a strict local maximum. Use strict
+			// greater-than to avoid keeping tied neighbors which can produce
+			// thicker edges at diagonal directions.
+			if (mag > mag1 && mag > mag2) {
+				nms[y * width + x] = mag;
 			}
 		}
 	}
@@ -117,7 +123,7 @@ int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width
 	// Mark strong edges (above high threshold).
 	for (size_t y = 0; y < height; y++) {
 		for (size_t x = 0; x < width; x++) {
-			if ((float)nms[y * width + x] >= high_threshold) {
+			if (nms[y * width + x] >= high_threshold) {
 				output[y * width + x] = 255;
 			}
 		}
@@ -167,7 +173,7 @@ int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width
 
 				// Check if neighbor is weak edge and not yet marked.
 				if (nx > 0 && nx < width - 1 && ny > 0 && ny < height - 1) {
-					if ((float)nms[ny * width + nx] >= low_threshold && output[ny * width + nx] == 0) {
+					if (nms[ny * width + nx] >= low_threshold && output[ny * width + nx] == 0) {
 						output[ny * width + nx] = 255;
 						stack[stack_size].x		= nx;
 						stack[stack_size].y		= ny;

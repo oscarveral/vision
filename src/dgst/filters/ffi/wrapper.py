@@ -130,7 +130,6 @@ libfilter.kannala_brandt_undistort.argtypes = (
 )
 libfilter.kannala_brandt_undistort.restype = ffi.c_int32
 
-
 # Python wrapper for the kannala_brandt_undistort function.
 def kannala_brandt_undistort(input_image: np.ndarray, intrinsics_3x3: np.ndarray, 
                               distortion_4: np.ndarray) -> np.ndarray:
@@ -184,4 +183,75 @@ def kannala_brandt_undistort(input_image: np.ndarray, intrinsics_3x3: np.ndarray
     if result != 0:
         raise RuntimeError(f"Kannala-Brandt undistortion failed in C library with error code {result}.")
     
+    return output_image
+
+
+# phase_congruency from the C library.
+libfilter.phase_congruency.argtypes = (
+    ffi.POINTER(ffi.c_uint8),  # input
+    ffi.POINTER(ffi.c_uint8),  # output
+    ffi.c_size_t,              # width
+    ffi.c_size_t,              # height
+    ffi.c_int32,               # nscale
+    ffi.c_int32,               # norient
+    ffi.c_float,               # min_wavelength
+    ffi.c_float,               # mult
+    ffi.c_float,               # sigma_onf
+    ffi.c_float,               # eps
+)
+libfilter.phase_congruency.restype = ffi.c_int32
+
+
+def phase_congruency(input_image: np.ndarray,
+                     nscale: int,
+                     norient: int,
+                     min_wavelength: float,
+                     mult: float,
+                     sigma_onf: float,
+                     eps: float) -> np.ndarray:
+    """Compute phase congruency on a grayscale image using the C implementation.
+
+    Args:
+        input_image: 2D uint8 grayscale image
+        nscale: number of scales
+        norient: number of orientations
+        min_wavelength: minimum wavelength
+        mult: scaling factor between successive filters
+        sigma_onf: ratio of the standard deviation of the Gaussian describing
+                  the log Gabor filter's transfer function in the frequency
+                  domain to the filter center frequency
+        eps: small epsilon to avoid division by zero
+
+    Returns:
+        uint8 2D numpy array with phase congruency result (0-255)
+    """
+    if input_image.dtype != np.uint8:
+        raise ValueError("Input image must be of type uint8.")
+    if len(input_image.shape) != 2:
+        raise ValueError("Input image must be a 2D array (grayscale).")
+
+    input_image = np.ascontiguousarray(input_image)
+
+    height, width = input_image.shape
+    output_image = np.zeros_like(input_image)
+
+    c_input = input_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
+    c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
+
+    result = libfilter.phase_congruency(
+        c_input,
+        c_output,
+        width,
+        height,
+        ffi.c_int32(nscale),
+        ffi.c_int32(norient),
+        ffi.c_float(min_wavelength),
+        ffi.c_float(mult),
+        ffi.c_float(sigma_onf),
+        ffi.c_float(eps),
+    )
+
+    if result != 0:
+        raise RuntimeError(f"Phase congruency failed in C library with error code {result}.")
+
     return output_image
