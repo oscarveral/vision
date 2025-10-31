@@ -3,7 +3,7 @@ import numpy as np
 from typing import List, Optional, Dict, Any
 from abc import ABC, abstractmethod
 
-from dgst.filters.ffi import box_filter, gaussian_filter, canny_edge_detection, kannala_brandt_undistort, phase_congruency as pc_ffi
+from dgst.filters.ffi import box_filter, gaussian_filter, canny_edge_detection, kannala_brandt_undistort, phase_congruency as pc_ffi, threshold_filter
 from dgst.filters.python import phase_congruency as pc_python
 from dgst.utils.loader import Image
 
@@ -14,6 +14,9 @@ class ProcessingTechnique:
     GRAYSCALE = "grayscale"
     KANNALA_BRANDT_UNDISTORTION = "kannala_brandt_undistortion"
     PHASE_CONGRUENCY = "phase_congruency"
+    THRESHOLD_FILTER = "threshold_filter"
+    REMOVE_NON_BORDER_POINTS = "remove_non_border_points"
+    NON_MAXIMUM_SUPPRESSION = "non_maximum_suppression"
 
 
 class ProcessingStep(ABC):
@@ -187,6 +190,44 @@ class PhaseCongruencyStep(ProcessingStep):
             "eps": self.eps
         }
 
+
+class ThresholdFilterStep(ProcessingStep):
+    """Threshold a float image using the C implementation.
+
+    This step expects a 2D image. If the input is uint8 (0-255), it will be
+    converted to float32 in [0,1] before calling the C function. Output is
+    a float32 2D array with values 0.0 or 1.0.
+    """
+
+    def __init__(self, threshold: float = 0.5):
+        if not (0.0 <= float(threshold) <= 1.0):
+            raise ValueError("threshold must be between 0 and 1")
+        self.threshold = float(threshold)
+
+    def process(self, image: Image) -> Image:
+        # Ensure 2D
+        if image.data.ndim != 2:
+            raise ValueError("ThresholdFilterStep expects a 2D grayscale image")
+
+        # If uint8, scale to [0,1]
+        if np.issubdtype(image.data.dtype, np.integer):
+            img = image.data.astype(np.float32) / 255.0
+        else:
+            img = image.data.astype(np.float32)
+
+        # Call the C-backed threshold_filter which returns float32 0.0/1.0
+        result = threshold_filter(img, self.threshold)
+
+        # Store result (float32) back into image.data
+        image.data = result
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": ProcessingTechnique.THRESHOLD_FILTER,
+            "threshold": self.threshold,
+        }
+
 class ImageProcessor:
     """Flexible image processor for chaining filters and edge detection.
     
@@ -296,7 +337,15 @@ class ImageProcessor:
         return self.add_step(PhaseCongruencyStep(nscale=nscale, norient=norient,
                                                  min_wavelength=min_wavelength, mult=mult,
                                                  sigma_onf=sigma_onf, use_own=use_own))
-    
+
+    def add_threshold(self, threshold: float = 0.5) -> 'ImageProcessor':
+        """Add threshold filter step.
+
+        The input to this step should be a 2D image. If it's uint8, it will be
+        converted to float32 in [0,1] before thresholding.
+        """
+        return self.add_step(ThresholdFilterStep(threshold))
+
     def process(self, image: Image, 
                 keep_intermediate: bool = False) -> Image:
         """Process image through all steps in the pipeline.

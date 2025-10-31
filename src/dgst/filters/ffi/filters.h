@@ -178,8 +178,8 @@ int32_t kannala_brandt_undistort(const uint8_t* input, uint8_t* output, size_t w
  * @param input Pointer to the input grayscale image data (row-major order).
  *              Each pixel is a uint8_t value (0-255). Must not be NULL.
  * @param output Pointer to the output buffer for phase congruency map.
- *               Must be pre-allocated with size width * height bytes.
- *               Output is uint8_t (0-255) with higher values indicating stronger features.
+ *               Must be pre-allocated with size width * height * sizeof(float) bytes.
+ *               Output is float32 with values in [0.0, 1.0] where higher values indicate stronger features.
  *               Must not be NULL and should not overlap with input.
  * @param width Width of the image in pixels. Must be > 0 and a power of 2.
  * @param height Height of the image in pixels. Must be > 0 and a power of 2.
@@ -227,6 +227,23 @@ int32_t kannala_brandt_undistort(const uint8_t* input, uint8_t* output, size_t w
  *          are not powers of 2, or if output buffer is smaller than width * height bytes.
  *          For best results, use power-of-2 dimensions (e.g., 256x256, 512x512).
  */
-int32_t phase_congruency(const uint8_t* input, uint8_t* output, size_t width, size_t height, int32_t nscale, int32_t norient, float min_wavelength, float mult, float sigma_onf, float eps);
+int32_t phase_congruency(const uint8_t* input, float* output, size_t width, size_t height, int32_t nscale, int32_t norient, float min_wavelength, float mult, float sigma_onf, float eps);
 
 #endif // DGST_FILTERS_H
+
+/**
+ * @brief Threshold a float image in [0,1] producing a float output map with 0.0 or 1.0
+ *
+ * This function thresholds a float32 image where values are expected in [0,1].
+ * Pixels with value >= threshold are set to 1.0f in the output, others to 0.0f.
+ *
+ * @param input Pointer to input float32 image (row-major), values in [0,1]
+ * @param output Pointer to output float32 image (row-major), same size as input
+ * @param width Image width
+ * @param height Image height
+ * @param threshold Threshold value in [0,1]
+ * @return 0 on success, negative on error:
+ *         -1: Invalid parameters (NULL pointers, zero dimensions, threshold out of range)
+ *         -2: Image too large (width * height > 16,000,000)
+ */
+int32_t threshold_filter(const float* input, float* output, size_t width, size_t height, float threshold);

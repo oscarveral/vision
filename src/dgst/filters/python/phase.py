@@ -108,12 +108,4 @@ def phase_congruency(image: np.ndarray,
     # clamp to [0,1]
     phase_cong = np.clip(phase_cong, 0.0, 1.0).astype(np.float32)
 
-    # Convert to uint8
-    phase_cong = (phase_cong * 255).astype(np.uint8)
-
     return phase_cong
-
-
-def phase_congruency_normalized(image: np.ndarray, **kwargs) -> np.ndarray:
-    """Alias for phase_congruency; kept for naming compatibility."""
-    return phase_congruency(image, **kwargs)

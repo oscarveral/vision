@@ -19,19 +19,20 @@ def main():
     loader = DataLoader(DATA_ROOT + "/single_frames")
     image = loader.load(14)
 
+
     processor = (ImageProcessor()
         .add_kannala_brandt_undistortion()
         .add_grayscale()
         .add_gaussian_filter(sigma=1.4)
-        .add_phase_congruency(nscale=4, norient=6)
+        .add_phase_congruency(nscale=4, norient=6, min_wavelength=3.0)
+        .add_threshold(threshold=0.95)
     )
 
     image = processor.process(image)
 
     image.data = cv2.resize(image.data, (0,0), fx=0.3, fy=0.3)
 
-
-    cv2.imshow("Original Image", image.data)
+    cv2.imshow("Processed Image", image.data)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 

@@ -189,7 +189,7 @@ def kannala_brandt_undistort(input_image: np.ndarray, intrinsics_3x3: np.ndarray
 # phase_congruency from the C library.
 libfilter.phase_congruency.argtypes = (
     ffi.POINTER(ffi.c_uint8),  # input
-    ffi.POINTER(ffi.c_uint8),  # output
+    ffi.POINTER(ffi.c_float),  # output (float32, values in [0,1])
     ffi.c_size_t,              # width
     ffi.c_size_t,              # height
     ffi.c_int32,               # nscale
@@ -233,10 +233,11 @@ def phase_congruency(input_image: np.ndarray,
     input_image = np.ascontiguousarray(input_image)
 
     height, width = input_image.shape
-    output_image = np.zeros_like(input_image)
+    # Output is a float32 map in range [0,1]
+    output_image = np.zeros((height, width), dtype=np.float32)
 
     c_input = input_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
-    c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
+    c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_float))
 
     result = libfilter.phase_congruency(
         c_input,
@@ -253,5 +254,50 @@ def phase_congruency(input_image: np.ndarray,
 
     if result != 0:
         raise RuntimeError(f"Phase congruency failed in C library with error code {result}.")
+
+    return output_image
+
+# C-backed threshold filter: expects float32 input and produces float32 output (0.0/1.0)
+libfilter.threshold_filter.argtypes = (
+    ffi.POINTER(ffi.c_float),
+    ffi.POINTER(ffi.c_float),
+    ffi.c_size_t,
+    ffi.c_size_t,
+    ffi.c_float,
+)
+libfilter.threshold_filter.restype = ffi.c_int32
+
+
+def threshold_filter(input_image: np.ndarray, threshold: float) -> np.ndarray:
+    """Threshold a float32 image using the C implementation.
+
+    Args:
+        input_image: 2D numpy array of floats (values expected in [0,1]). dtype float32 or float64 accepted.
+        threshold: float in [0,1]. Pixels >= threshold become 1.0, others 0.0.
+
+    Returns:
+        2D numpy array of dtype float32 with values 0.0 or 1.0.
+    """
+    if not (isinstance(threshold, float) or isinstance(threshold, (int,))):
+        raise ValueError("threshold must be a float between 0 and 1")
+    if threshold < 0.0 or threshold > 1.0:
+        raise ValueError("threshold must be between 0 and 1")
+
+    if input_image.ndim != 2:
+        raise ValueError("Input image must be a 2D array (grayscale).")
+
+    if not np.issubdtype(input_image.dtype, np.floating):
+        raise ValueError("Input image must be a float array with values in [0,1].")
+
+    img = np.ascontiguousarray(input_image.astype(np.float32))
+    height, width = img.shape
+    output_image = np.zeros((height, width), dtype=np.float32)
+
+    c_input = img.ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_float))
+
+    result = libfilter.threshold_filter(c_input, c_output, width, height, ffi.c_float(threshold))
+    if result != 0:
+        raise RuntimeError(f"Threshold filter failed in C library with error code {result}.")
 
     return output_image

@@ -15,11 +15,12 @@ if os.path.exists(makefile_path):
 else:
     raise FileNotFoundError(f"Makefile not found in {makefile_dir}")
 
-from .wrapper import box_filter, gaussian_filter,canny_edge_detection,kannala_brandt_undistort,phase_congruency
+from .wrapper import box_filter, gaussian_filter,canny_edge_detection,kannala_brandt_undistort,phase_congruency,threshold_filter
 __all__ = [
     "box_filter",
     "gaussian_filter",
     "canny_edge_detection",
     "kannala_brandt_undistort",
     "phase_congruency",
+    "threshold_filter",
 ]

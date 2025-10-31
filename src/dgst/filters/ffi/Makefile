@@ -28,7 +28,6 @@ dirs:
 __objs__/%.o: %.c $(HEADERS) | dirs
 	$(CC) $(CFLAGS) -c $< -o $@
 
-
 # Compile the C source file into a shared library.
 libfilters.so.1.0.0: $(OBJS) $(HEADERS)
 	@mkdir -p $(__OBJS_DIR)
