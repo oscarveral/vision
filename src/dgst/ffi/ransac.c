@@ -147,6 +147,11 @@ int32_t ransac_line_fitting(
                 break; // Not enough inliers to refine.
             }
 
+            if (inlier_count < best_inlier_count) {
+                // Stop if inlier count decreased.
+                break;
+            }
+
             float N = (float)inlier_count;
             float denominator = N * sum_x2 - sum_x * sum_x;
             if (fabsf(denominator) < 1e-6f) {

@@ -175,8 +175,10 @@ def ransac_line_fitting(
         ffi.byref(b),
         ffi.byref(c)
     )
-    if result != 0:
+    if -4 < result < 0:
         print("RANSAC line fitting failed in C library with error code", result, file=sys.stderr)
+        return None
+    elif result != 0:
         return None
 
     return (a.value, b.value, c.value)
