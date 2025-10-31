@@ -1,3 +1,4 @@
+from email.mime import image
 import os
 import cv2
 import json
@@ -56,6 +57,14 @@ class Image:
         self.data = data
         self.rois = rois
         self.calibration = calibration
+
+    def show_rois(self):
+        img_copy = self.data.copy()
+        for roi in self.rois:
+            pts = np.array([roi.p1, roi.p2, roi.p3, roi.p4], np.int32)
+            pts = pts.reshape((-1, 1, 2))
+            cv2.polylines(img_copy, [pts], isClosed=True, color=(0, 255, 0), thickness=2)
+        self.data = img_copy
 
 class DataLoader:
     def __init__(self, path=DATA_ROOT):
@@ -120,4 +129,3 @@ class DataLoader:
         rois = self.load_metadata(number)
         calibration = self.load_calibration(number)
         return Image(data=image, rois=rois, calibration=calibration)
-    
