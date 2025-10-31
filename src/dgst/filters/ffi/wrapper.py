@@ -186,10 +186,57 @@ def kannala_brandt_undistort(input_image: np.ndarray, intrinsics_3x3: np.ndarray
     return output_image
 
 
+# Function to map points from distorted to undistorted pixel coordinates
+libfilter.kannala_brandt_map_points_to_undistorted.argtypes = (
+    ffi.POINTER(ffi.c_float),  # points_in
+    ffi.POINTER(ffi.c_float),  # points_out
+    ffi.c_size_t,              # n_points
+    ffi.POINTER(ffi.c_float),  # intrinsics_3x3
+    ffi.POINTER(ffi.c_float),  # distortion_4
+)
+libfilter.kannala_brandt_map_points_to_undistorted.restype = ffi.c_int32
+
+
+def kannala_brandt_map_points_to_undistorted(points: np.ndarray, intrinsics_3x3: np.ndarray, distortion_4: np.ndarray) -> np.ndarray:
+    """Map an array of points (Nx2) from distorted image coordinates to undistorted coordinates.
+
+    Args:
+        points: Nx2 array of (u, v) pixel coordinates in distorted image.
+        intrinsics_3x3: 3x3 intrinsics matrix.
+        distortion_4: array of 4 distortion coefficients.
+
+    Returns:
+        Nx2 float32 array with mapped coordinates in undistorted image.
+    """
+    pts = np.asarray(points, dtype=np.float32)
+    if pts.ndim != 2 or pts.shape[1] != 2:
+        raise ValueError("points must be a Nx2 array of (u,v) coordinates")
+
+    if intrinsics_3x3.shape != (3, 3):
+        raise ValueError("Intrinsics matrix must be 3x3")
+    if distortion_4.shape != (4,):
+        raise ValueError("Distortion coefficients must have 4 elements")
+
+    n_points = pts.shape[0]
+    pts_flat = np.ascontiguousarray(pts.flatten(), dtype=np.float32)
+    out_flat = np.empty_like(pts_flat)
+
+    c_in = pts_flat.ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_out = out_flat.ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_intrinsics = np.ascontiguousarray(intrinsics_3x3.flatten(), dtype=np.float32).ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_dist = np.ascontiguousarray(distortion_4.astype(np.float32)).ctypes.data_as(ffi.POINTER(ffi.c_float))
+
+    result = libfilter.kannala_brandt_map_points_to_undistorted(c_in, c_out, n_points, c_intrinsics, c_dist)
+    if result != 0:
+        raise RuntimeError(f"Kannala-Brandt point mapping failed in C library with error code {result}.")
+
+    return out_flat.reshape((n_points, 2))
+
+
 # phase_congruency from the C library.
 libfilter.phase_congruency.argtypes = (
     ffi.POINTER(ffi.c_uint8),  # input
-    ffi.POINTER(ffi.c_float),  # output (float32, values in [0,1])
+    ffi.POINTER(ffi.c_uint8),  # output (uint8, values in [0,255])
     ffi.c_size_t,              # width
     ffi.c_size_t,              # height
     ffi.c_int32,               # nscale
@@ -233,11 +280,11 @@ def phase_congruency(input_image: np.ndarray,
     input_image = np.ascontiguousarray(input_image)
 
     height, width = input_image.shape
-    # Output is a float32 map in range [0,1]
-    output_image = np.zeros((height, width), dtype=np.float32)
+    # Output is a uint8 map in range [0,255]
+    output_image = np.zeros((height, width), dtype=np.uint8)
 
     c_input = input_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
-    c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
 
     result = libfilter.phase_congruency(
         c_input,
@@ -259,8 +306,8 @@ def phase_congruency(input_image: np.ndarray,
 
 # C-backed threshold filter: expects float32 input and produces float32 output (0.0/1.0)
 libfilter.threshold_filter.argtypes = (
-    ffi.POINTER(ffi.c_float),
-    ffi.POINTER(ffi.c_float),
+    ffi.POINTER(ffi.c_uint8),
+    ffi.POINTER(ffi.c_uint8),
     ffi.c_size_t,
     ffi.c_size_t,
     ffi.c_float,
@@ -269,14 +316,14 @@ libfilter.threshold_filter.restype = ffi.c_int32
 
 
 def threshold_filter(input_image: np.ndarray, threshold: float) -> np.ndarray:
-    """Threshold a float32 image using the C implementation.
+    """Threshold a uint8 image using the C implementation.
 
     Args:
-        input_image: 2D numpy array of floats (values expected in [0,1]). dtype float32 or float64 accepted.
-        threshold: float in [0,1]. Pixels >= threshold become 1.0, others 0.0.
+        input_image: 2D numpy array of uint8 (values in [0,255]).
+        threshold: float in [0,1]. Values normalized by /255 are compared to threshold.
 
     Returns:
-        2D numpy array of dtype float32 with values 0.0 or 1.0.
+        2D numpy array of dtype uint8 with values 0 or 255.
     """
     if not (isinstance(threshold, float) or isinstance(threshold, (int,))):
         raise ValueError("threshold must be a float between 0 and 1")
@@ -286,15 +333,15 @@ def threshold_filter(input_image: np.ndarray, threshold: float) -> np.ndarray:
     if input_image.ndim != 2:
         raise ValueError("Input image must be a 2D array (grayscale).")
 
-    if not np.issubdtype(input_image.dtype, np.floating):
-        raise ValueError("Input image must be a float array with values in [0,1].")
+    if input_image.dtype != np.uint8:
+        raise ValueError("Input image must be uint8 with values in [0,255].")
 
-    img = np.ascontiguousarray(input_image.astype(np.float32))
+    img = np.ascontiguousarray(input_image)
     height, width = img.shape
-    output_image = np.zeros((height, width), dtype=np.float32)
+    output_image = np.zeros((height, width), dtype=np.uint8)
 
-    c_input = img.ctypes.data_as(ffi.POINTER(ffi.c_float))
-    c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_input = img.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
+    c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
 
     result = libfilter.threshold_filter(c_input, c_output, width, height, ffi.c_float(threshold))
     if result != 0:

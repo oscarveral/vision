@@ -30,7 +30,7 @@ def phase_congruency(image: np.ndarray,
         eps: Small constant to avoid division by zero.
 
     Returns:
-        phase_cong: float32 array same shape as input with values ~[0,1].
+        phase_cong: uint8 array same shape as input with values in [0,255].
     """
     if image.ndim != 2:
         raise ValueError("phase_congruency expects a 2D grayscale image")
@@ -100,12 +100,14 @@ def phase_congruency(image: np.ndarray,
         amplitude_sum += an
         pc_sum += energy_orient
 
-    # noise compensation / normalization
-    # simple normalization by amplitude sum
+    # noise compensation / normalization (simple normalization by amplitude sum)
     denom = amplitude_sum + eps
     phase_cong = pc_sum / denom
 
     # clamp to [0,1]
-    phase_cong = np.clip(phase_cong, 0.0, 1.0).astype(np.float32)
+    phase_cong = np.clip(phase_cong, 0.0, 1.0)
 
-    return phase_cong
+    # Map to uint8 [0, 255]. Round to nearest integer for better visual quality.
+    phase_cong_uint8 = np.rint(phase_cong * 255.0).astype(np.uint8)
+
+    return phase_cong_uint8

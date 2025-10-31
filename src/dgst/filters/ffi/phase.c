@@ -243,7 +243,7 @@ static void fft_shift(Complex* data, size_t rows, size_t cols) {
 	}
 }
 
-int32_t phase_congruency(const uint8_t* input, float* output, size_t width, size_t height, int32_t nscale, int32_t norient, float min_wavelength, float mult, float sigma_onf, float eps) {
+int32_t phase_congruency(const uint8_t* input, uint8_t* output, size_t width, size_t height, int32_t nscale, int32_t norient, float min_wavelength, float mult, float sigma_onf, float eps) {
 
 	// Validate input parameters.
 	if (!input || !output || width == 0 || height == 0) {
@@ -484,8 +484,16 @@ int32_t phase_congruency(const uint8_t* input, float* output, size_t width, size
 	float inv_max = (max_val > eps) ? (1.0f / max_val) : 0.0f;
 	#pragma omp parallel for if (size > 65536)
 	for (size_t i = 0; i < size; i++) {
-		// Output as float in [0,1]
-		output[i] = pc_sum[i] * inv_max;
+		// Map normalized float in [0,1] to rounded uint8 in [0,255]
+		float v = pc_sum[i] * inv_max;
+		// safety clamp (should already be in [0,1])
+		if (v < 0.0f) v = 0.0f;
+		else if (v > 1.0f) v = 1.0f;
+
+		int tmp = (int)(v * 255.0f + 0.5f);
+		if (tmp < 0) tmp = 0;
+		else if (tmp > 255) tmp = 255;
+		output[i] = (uint8_t)tmp;
 	}
 
 	// Clean up.

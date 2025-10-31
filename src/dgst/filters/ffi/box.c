@@ -9,7 +9,7 @@ int32_t box_filter(const uint8_t* input, uint8_t* output, size_t width, size_t h
 		return -1;
 	}
 	// Limit image size to prevent overflows and excessive memory use.
-	if (width * height > 4000000UL) {
+	if (width * height > 16000000UL) {
 		return -2;
 	}
 

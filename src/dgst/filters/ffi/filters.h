@@ -164,6 +164,24 @@ int32_t canny_edge_detection(const uint8_t* input, uint8_t* output, size_t width
 int32_t kannala_brandt_undistort(const uint8_t* input, uint8_t* output, size_t width, size_t height, size_t channels, const float* intrinsics_3x3, const float* distortion_4);
 
 /**
+ * @brief Map points from distorted image pixel coordinates into undistorted image pixel coordinates.
+ *
+ * The function expects points in pixel coordinates (u, v) in the distorted image and
+ * computes their corresponding (u, v) coordinates in the undistorted image using
+ * the inverse of the Kannala-Brandt mapping. Points are provided as an array of
+ * floats [u0, v0, u1, v1, ..., uN-1, vN-1]. The output array must have the same
+ * length and will be filled with the mapped coordinates.
+ *
+ * @param points_in Pointer to input points array (length = n_points * 2). Must not be NULL.
+ * @param points_out Pointer to output points array (length = n_points * 2). Must not be NULL.
+ * @param n_points Number of points to map.
+ * @param intrinsics_3x3 Pointer to camera intrinsic matrix (3x3, row-major order).
+ * @param distortion_4 Pointer to array of 4 distortion coefficients [k1, k2, k3, k4].
+ * @return 0 on success, negative on error.
+ */
+int32_t kannala_brandt_map_points_to_undistorted(const float* points_in, float* points_out, size_t n_points, const float* intrinsics_3x3, const float* distortion_4);
+
+/**
  * @brief Computes phase congruency map for edge and feature detection.
  *
  * This function implements a phase congruency algorithm inspired by Kovesi's method.
@@ -178,8 +196,8 @@ int32_t kannala_brandt_undistort(const uint8_t* input, uint8_t* output, size_t w
  * @param input Pointer to the input grayscale image data (row-major order).
  *              Each pixel is a uint8_t value (0-255). Must not be NULL.
  * @param output Pointer to the output buffer for phase congruency map.
- *               Must be pre-allocated with size width * height * sizeof(float) bytes.
- *               Output is float32 with values in [0.0, 1.0] where higher values indicate stronger features.
+ *               Must be pre-allocated with size width * height bytes.
+ *               Output is uint8_t with values in [0, 255] where higher values indicate stronger features.
  *               Must not be NULL and should not overlap with input.
  * @param width Width of the image in pixels. Must be > 0 and a power of 2.
  * @param height Height of the image in pixels. Must be > 0 and a power of 2.
@@ -227,18 +245,19 @@ int32_t kannala_brandt_undistort(const uint8_t* input, uint8_t* output, size_t w
  *          are not powers of 2, or if output buffer is smaller than width * height bytes.
  *          For best results, use power-of-2 dimensions (e.g., 256x256, 512x512).
  */
-int32_t phase_congruency(const uint8_t* input, float* output, size_t width, size_t height, int32_t nscale, int32_t norient, float min_wavelength, float mult, float sigma_onf, float eps);
+int32_t phase_congruency(const uint8_t* input, uint8_t* output, size_t width, size_t height, int32_t nscale, int32_t norient, float min_wavelength, float mult, float sigma_onf, float eps);
 
 #endif // DGST_FILTERS_H
 
 /**
- * @brief Threshold a float image in [0,1] producing a float output map with 0.0 or 1.0
+ * @brief Threshold a uint8 image producing a uint8 binary output map with 0 or 255
  *
- * This function thresholds a float32 image where values are expected in [0,1].
- * Pixels with value >= threshold are set to 1.0f in the output, others to 0.0f.
+ * This function thresholds a uint8 image where input pixels are expected in [0,255].
+ * Pixels are first normalized to [0,1] (value/255.0) and then compared to threshold.
+ * Output pixels are set to 255 if value >= threshold, otherwise 0.
  *
- * @param input Pointer to input float32 image (row-major), values in [0,1]
- * @param output Pointer to output float32 image (row-major), same size as input
+ * @param input Pointer to input uint8 image (row-major), values in [0,255]
+ * @param output Pointer to output uint8 image (row-major), same size as input
  * @param width Image width
  * @param height Image height
  * @param threshold Threshold value in [0,1]
@@ -246,4 +265,4 @@ int32_t phase_congruency(const uint8_t* input, float* output, size_t width, size
  *         -1: Invalid parameters (NULL pointers, zero dimensions, threshold out of range)
  *         -2: Image too large (width * height > 16,000,000)
  */
-int32_t threshold_filter(const float* input, float* output, size_t width, size_t height, float threshold);
+int32_t threshold_filter(const uint8_t* input, uint8_t* output, size_t width, size_t height, float threshold);

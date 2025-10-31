@@ -5,6 +5,7 @@ import json
 import numpy as np
 
 from dgst import DATA_ROOT
+import copy
 
 class RegionOfInterest:
     def __init__(
@@ -21,6 +22,16 @@ class RegionOfInterest:
 
     def __repr__(self):
         return f"RegionOfInterest(p1={self.p1}, p2={self.p2}, p3={self.p3}, p4={self.p4})"
+
+    def clone(self) -> "RegionOfInterest":
+        """Return a deep copy of this RegionOfInterest."""
+        # tuples are immutable but create new tuples for clarity
+        return RegionOfInterest(
+            p1=(float(self.p1[0]), float(self.p1[1])),
+            p2=(float(self.p2[0]), float(self.p2[1])),
+            p3=(float(self.p3[0]), float(self.p3[1])),
+            p4=(float(self.p4[0]), float(self.p4[1])),
+        )
 
 class Calibration:
     def __init__(self, calibration_data: dict):
@@ -52,6 +63,43 @@ class Calibration:
     def __repr__(self):
         return f"Calibration(camera_type={self.camera_type}, image_dimensions={self.image_dimensions}, intrinsics={self.intrinsics}, distortion={self.distortion}, undistortion={self.undistortion})"
 
+    def clone(self) -> "Calibration":
+        """Return a deep copy of this Calibration."""
+        # Create a shallow copy of the stored dict, but deep-copy numpy arrays where applicable
+        data_copy = copy.deepcopy(self.data) if self.data is not None else None
+
+        cloned = Calibration(data_copy if data_copy is not None else {})
+
+        # Deep copy numpy arrays if present
+        try:
+            if isinstance(self.intrinsics, np.ndarray):
+                cloned.intrinsics = np.copy(self.intrinsics)
+            else:
+                cloned.intrinsics = None if self.intrinsics is None else np.array(self.intrinsics)
+
+            if isinstance(self.extrinsics, np.ndarray):
+                cloned.extrinsics = np.copy(self.extrinsics)
+            else:
+                cloned.extrinsics = None if self.extrinsics is None else np.array(self.extrinsics)
+
+            if isinstance(self.lidar_extrinsics, np.ndarray):
+                cloned.lidar_extrinsics = np.copy(self.lidar_extrinsics)
+            else:
+                cloned.lidar_extrinsics = None if self.lidar_extrinsics is None else np.array(self.lidar_extrinsics)
+        except Exception:
+            # Fallback to deepcopy for any unexpected structure
+            cloned = Calibration(copy.deepcopy(self.data) if self.data is not None else {})
+
+        # Copy simple fields
+        cloned.camera_type = copy.deepcopy(self.camera_type)
+        cloned.image_dimensions = copy.deepcopy(self.image_dimensions)
+        cloned.distortion = copy.deepcopy(self.distortion)
+        cloned.field_of_view = copy.deepcopy(self.field_of_view)
+        cloned.xi = copy.deepcopy(self.xi)
+        cloned.undistortion = copy.deepcopy(self.undistortion)
+
+        return cloned
+
 class Image: 
     def __init__(self, data: np.ndarray, rois: list[RegionOfInterest], calibration: Calibration = None):
         self.data = data
@@ -65,6 +113,25 @@ class Image:
             pts = pts.reshape((-1, 1, 2))
             cv2.polylines(img_copy, [pts], isClosed=True, color=(0, 255, 0), thickness=2)
         self.data = img_copy
+
+    def clone(self) -> "Image":
+        """Return a deep copy of this Image.
+
+        - numpy array for image data is copied via np.copy
+        - ROI objects are cloned
+        - Calibration is cloned if present
+        """
+        data_copy = None
+        if self.data is not None:
+            try:
+                data_copy = np.copy(self.data)
+            except Exception:
+                # fallback to deepcopy
+                data_copy = copy.deepcopy(self.data)
+
+        rois_copy = [r.clone() for r in self.rois] if self.rois is not None else []
+        calibration_copy = self.calibration.clone() if self.calibration is not None else None
+        return Image(data=data_copy, rois=rois_copy, calibration=calibration_copy)
 
 class DataLoader:
     def __init__(self, path=DATA_ROOT):

@@ -3,9 +3,9 @@ import numpy as np
 from typing import List, Optional, Dict, Any
 from abc import ABC, abstractmethod
 
-from dgst.filters.ffi import box_filter, gaussian_filter, canny_edge_detection, kannala_brandt_undistort, phase_congruency as pc_ffi, threshold_filter
-from dgst.filters.python import phase_congruency as pc_python
-from dgst.utils.loader import Image
+from dgst.filters.ffi import box_filter, gaussian_filter, canny_edge_detection, kannala_brandt_undistort, kannala_brandt_map_points_to_undistorted, phase_congruency as pc_ffi, threshold_filter
+from dgst.filters.python import phase_congruency as pc_python, otsu_threshold, clahe_filter
+from dgst.utils.loader import Image, RegionOfInterest
 
 class ProcessingTechnique:
     BOX_FILTER = "box_filter"
@@ -15,8 +15,8 @@ class ProcessingTechnique:
     KANNALA_BRANDT_UNDISTORTION = "kannala_brandt_undistortion"
     PHASE_CONGRUENCY = "phase_congruency"
     THRESHOLD_FILTER = "threshold_filter"
-    REMOVE_NON_BORDER_POINTS = "remove_non_border_points"
-    NON_MAXIMUM_SUPPRESSION = "non_maximum_suppression"
+    CLAHE = "clahe"
+    OTSU_THRESHOLD = "otsu_threshold"
 
 
 class ProcessingStep(ABC):
@@ -117,7 +117,7 @@ class KannalaBrandtUndistortionStep(ProcessingStep):
     """Apply Kannala-Brandt undistortion using calibration data from the image."""
     
     def __init__(self):
-        self._calibration = None
+        pass
     
     def process(self, image: Image) -> Image:
         if image.calibration is None:
@@ -127,14 +127,38 @@ class KannalaBrandtUndistortionStep(ProcessingStep):
         
         # Extract intrinsic parameters (3x3 matrix from 3x4)
         K = image.calibration.intrinsics[:3, :3]
-        
+
         # Extract distortion coefficients (first 4)
         D = np.array(image.calibration.distortion[:4], dtype=np.float32)
-        
+
         # Apply the undistortion using C implementation
         image.data = kannala_brandt_undistort(image.data, K, D)
-        
-        self._calibration = image.calibration
+
+        # Remap ROI coordinates (if any) from distorted -> undistorted pixel coordinates
+        if image.rois:
+            # Build points array Nx2 (4 points per ROI)
+            n_rois = len(image.rois)
+            pts = np.zeros((n_rois * 4, 2), dtype=np.float32)
+            for i, roi in enumerate(image.rois):
+                base = i * 4
+                pts[base + 0, :] = (float(roi.p1[0]), float(roi.p1[1]))
+                pts[base + 1, :] = (float(roi.p2[0]), float(roi.p2[1]))
+                pts[base + 2, :] = (float(roi.p3[0]), float(roi.p3[1]))
+                pts[base + 3, :] = (float(roi.p4[0]), float(roi.p4[1]))
+
+            mapped = kannala_brandt_map_points_to_undistorted(pts, K, D)
+
+            new_rois = []
+            for i in range(n_rois):
+                base = i * 4
+                p1 = (float(mapped[base + 0, 0]), float(mapped[base + 0, 1]))
+                p2 = (float(mapped[base + 1, 0]), float(mapped[base + 1, 1]))
+                p3 = (float(mapped[base + 2, 0]), float(mapped[base + 2, 1]))
+                p4 = (float(mapped[base + 3, 0]), float(mapped[base + 3, 1]))
+                new_rois.append(RegionOfInterest(p1=p1, p2=p2, p3=p3, p4=p4))
+
+            image.rois = new_rois
+
         return image
     
     def get_params(self) -> Dict[str, Any]:
@@ -209,16 +233,14 @@ class ThresholdFilterStep(ProcessingStep):
         if image.data.ndim != 2:
             raise ValueError("ThresholdFilterStep expects a 2D grayscale image")
 
-        # If uint8, scale to [0,1]
-        if np.issubdtype(image.data.dtype, np.integer):
-            img = image.data.astype(np.float32) / 255.0
-        else:
-            img = image.data.astype(np.float32)
+        # Enforce strict 2D uint8 input as required by the C-backed threshold filter.
+        if image.data.dtype != np.uint8:
+            raise ValueError("ThresholdFilterStep expects image.data to be dtype=uint8")
 
-        # Call the C-backed threshold_filter which returns float32 0.0/1.0
-        result = threshold_filter(img, self.threshold)
+        # Call the C-backed threshold_filter which expects uint8 input and returns uint8 0/255
+        result = threshold_filter(image.data, self.threshold)
 
-        # Store result (float32) back into image.data
+        # Store result (uint8) back into image.data
         image.data = result
         return image
 
@@ -227,6 +249,52 @@ class ThresholdFilterStep(ProcessingStep):
             "technique": ProcessingTechnique.THRESHOLD_FILTER,
             "threshold": self.threshold,
         }
+
+
+class CLAHEStep(ProcessingStep):
+    """Apply CLAHE (Contrast Limited Adaptive Histogram Equalization).
+
+    This step will apply CLAHE to grayscale images or to the L channel of
+    a BGR color image (preserving color information).
+    """
+
+    def __init__(self, clip_limit: float = 2.0, tile_grid_size=(8, 8)):
+        if clip_limit <= 0:
+            raise ValueError("clip_limit must be positive")
+        self.clip_limit = float(clip_limit)
+        self.tile_grid_size = (int(tile_grid_size[0]), int(tile_grid_size[1]))
+
+    def process(self, image: Image) -> Image:
+        if image.data is None:
+            raise ValueError("Image.data is None")
+        image.data = clahe_filter(image.data, clip_limit=self.clip_limit, tile_grid_size=self.tile_grid_size)
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": ProcessingTechnique.CLAHE,
+            "clip_limit": self.clip_limit,
+            "tile_grid_size": self.tile_grid_size,
+        }
+
+
+class OtsuThresholdStep(ProcessingStep):
+    """Apply Otsu automatic threshold to a 2D image and return uint8 mask."""
+
+    def __init__(self):
+        pass
+
+    def process(self, image: Image) -> Image:
+        if image.data is None:
+            raise ValueError("Image.data is None")
+        if image.data.ndim != 2:
+            raise ValueError("OtsuThresholdStep expects a 2D grayscale image")
+
+        image.data = otsu_threshold(image.data)
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {"technique": ProcessingTechnique.OTSU_THRESHOLD}
 
 class ImageProcessor:
     """Flexible image processor for chaining filters and edge detection.
@@ -346,6 +414,26 @@ class ImageProcessor:
         """
         return self.add_step(ThresholdFilterStep(threshold))
 
+    def add_clahe(self, clip_limit: float = 2.0, tile_grid_size=(8, 8)) -> 'ImageProcessor':
+        """Add CLAHE (adaptive histogram equalization) step.
+
+        Args:
+            clip_limit: Contrast limit for CLAHE.
+            tile_grid_size: Grid size (width, height) for CLAHE tiles.
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(CLAHEStep(clip_limit=clip_limit, tile_grid_size=tile_grid_size))
+
+    def add_otsu_threshold(self) -> 'ImageProcessor':
+        """Add Otsu automatic threshold step.
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(OtsuThresholdStep())
+
     def process(self, image: Image, 
                 keep_intermediate: bool = False) -> Image:
         """Process image through all steps in the pipeline.
@@ -358,28 +446,15 @@ class ImageProcessor:
             Final processed Image object
         """
         # Store original image with all metadata
-        self.original_image = Image(
-            data=image.data.copy(),
-            rois=image.rois,
-            calibration=image.calibration
-        )
-        self.intermediate_results = []
+        self.original_image = image.clone()
         
         # Create a working copy with all metadata preserved
-        current = Image(
-            data=image.data.copy(),
-            rois=image.rois,
-            calibration=image.calibration
-        )
+        current = image.clone()
         
         for step in self.steps:
             current = step.process(current)
             if keep_intermediate:
-                self.intermediate_results.append(Image(
-                    data=current.data.copy(),
-                    rois=current.rois,
-                    calibration=current.calibration
-                ))
+                self.intermediate_results.append(current.clone())
         
         self.processed_image = current
         return current
