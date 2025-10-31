@@ -143,7 +143,7 @@ celerybeat.pid
 # Environments
 .env
 .envrc
-.venv
+.venv*
 env/
 venv/
 ENV/
@@ -223,3 +223,6 @@ src/dgst/filters/ffi/__objs__
 
 # Data files
 data/
+
+# Via notebooks
+06_RectasRANSACyHT_C.ipynb
