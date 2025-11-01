@@ -31,6 +31,8 @@ def otsu_threshold(image: np.ndarray) -> np.ndarray:
         img_u8 = np.clip(arr, 0, 255).astype(np.uint8)
 
     # Use OpenCV Otsu thresholding
-    _, mask = cv2.threshold(img_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, mask = cv2.threshold(
+        img_u8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
 
     return mask

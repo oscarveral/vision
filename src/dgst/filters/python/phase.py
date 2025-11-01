@@ -1,16 +1,19 @@
 import numpy as np
 import math
 
-def phase_congruency(image: np.ndarray,
-                     nscale: int = 4,
-                     norient: int = 6,
-                     min_wavelength: float = 3.0,
-                     mult: float = 2.1,
-                     sigma_onf: float = 0.55,
-                     k: float = 2.0,
-                     cut_off: float = 0.5,
-                     g: float = 10.0,
-                     eps: float = 1e-8) -> np.ndarray:
+
+def phase_congruency(
+    image: np.ndarray,
+    nscale: int = 4,
+    norient: int = 6,
+    min_wavelength: float = 3.0,
+    mult: float = 2.1,
+    sigma_onf: float = 0.55,
+    k: float = 2.0,
+    cut_off: float = 0.5,
+    g: float = 10.0,
+    eps: float = 1e-8,
+) -> np.ndarray:
     """Compute a phase congruency map for a grayscale image.
 
     This is an approximate implementation inspired by the Kovesi phase
@@ -40,13 +43,16 @@ def phase_congruency(image: np.ndarray,
     rows, cols = img.shape
 
     # Frequency grids
-    y = np.arange(-rows//2, rows - rows//2)
-    x = np.arange(-cols//2, cols - cols//2)
+    y = np.arange(-rows // 2, rows - rows // 2)
+    x = np.arange(-cols // 2, cols - cols // 2)
     xv, yv = np.meshgrid(x, y)
     # normalized frequency radius
-    radius = np.sqrt((xv.astype(np.float32) / cols) ** 2 + (yv.astype(np.float32) / rows) ** 2)
+    radius = np.sqrt(
+        (xv.astype(np.float32) / cols) ** 2
+        + (yv.astype(np.float32) / rows) ** 2
+    )
     # avoid log(0)
-    radius[rows//2, cols//2] = 1.0
+    radius[rows // 2, cols // 2] = 1.0
     theta = np.arctan2(yv, xv)
 
     # prepare FFT of image
@@ -59,21 +65,31 @@ def phase_congruency(image: np.ndarray,
         angl = o * math.pi / norient
         # angular spread
         ds = np.sin(theta) * math.cos(angl) - np.cos(theta) * math.sin(angl)
-        dtheta = np.abs(np.arctan2(ds, np.cos(theta) * math.cos(angl) + np.sin(theta) * math.sin(angl)))
+        dtheta = np.abs(
+            np.arctan2(
+                ds,
+                np.cos(theta) * math.cos(angl)
+                + np.sin(theta) * math.sin(angl),
+            )
+        )
         # spread function (raised cosine-like)
-        angl_spread = np.exp((-dtheta ** 2) / (2 * ( (math.pi / norient * 1.2) ** 2)))
+        angl_spread = np.exp(
+            (-(dtheta**2)) / (2 * ((math.pi / norient * 1.2) ** 2))
+        )
 
         # For this orientation, accumulate even and odd responses across scales
         sum_even = np.zeros_like(img, dtype=np.float32)
         sum_odd = np.zeros_like(img, dtype=np.float32)
-        an = np.zeros_like(img, dtype=np.float32)  # amplitude sum per orientation
+        an = np.zeros_like(
+            img, dtype=np.float32
+        )  # amplitude sum per orientation
 
         wavelength = min_wavelength
         for s in range(nscale):
             fo = 1.0 / wavelength
             log_rad = np.log(radius / fo)
-            radial = np.exp(-(log_rad ** 2) / (2 * (np.log(sigma_onf) ** 2)))
-            radial[rows//2, cols//2] = 0.0
+            radial = np.exp(-(log_rad**2) / (2 * (np.log(sigma_onf) ** 2)))
+            radial[rows // 2, cols // 2] = 0.0
 
             filter_fft = radial * angl_spread
 

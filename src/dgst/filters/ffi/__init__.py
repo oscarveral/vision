@@ -15,7 +15,22 @@ if os.path.exists(makefile_path):
 else:
     raise FileNotFoundError(f"Makefile not found in {makefile_dir}")
 
+<<<<<<< HEAD
 from .wrapper import box_filter, gaussian_filter, canny_edge_detection, kannala_brandt_undistort, kannala_brandt_map_points_to_undistorted, phase_congruency, threshold_filter, ransac_line_fitting
+=======
+from .wrapper import (
+    box_filter,
+    gaussian_filter,
+    canny_edge_detection,
+    kannala_brandt_undistort,
+    kannala_brandt_map_points_to_undistorted,
+    phase_congruency,
+    threshold_filter,
+    ransac_line_fitting,
+    ransac_circle_fitting,
+)
+
+>>>>>>> main
 __all__ = [
     "box_filter",
     "gaussian_filter",
@@ -25,4 +40,9 @@ __all__ = [
     "phase_congruency",
     "threshold_filter",
     "ransac_line_fitting",
+<<<<<<< HEAD
 ]
+=======
+    "ransac_circle_fitting",
+]
+>>>>>>> main

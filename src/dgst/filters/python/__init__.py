@@ -3,7 +3,7 @@ from .otsu import otsu_threshold
 from .clahe import clahe_filter
 
 __all__ = [
-	"phase_congruency",
-	"otsu_threshold",
-	"clahe_filter",
+    "phase_congruency",
+    "otsu_threshold",
+    "clahe_filter",
 ]

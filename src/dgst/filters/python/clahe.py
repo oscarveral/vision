@@ -2,7 +2,9 @@ import numpy as np
 import cv2
 
 
-def clahe_filter(image: np.ndarray, clip_limit: float = 2.0, tile_grid_size=(8, 8)) -> np.ndarray:
+def clahe_filter(
+    image: np.ndarray, clip_limit: float = 2.0, tile_grid_size=(8, 8)
+) -> np.ndarray:
     """Apply CLAHE (Contrast Limited Adaptive Histogram Equalization).
 
     Works on grayscale (2D) or color BGR images (3-channel). For color
@@ -35,7 +37,10 @@ def clahe_filter(image: np.ndarray, clip_limit: float = 2.0, tile_grid_size=(8, 
     else:
         img_u8 = np.clip(arr, 0, 255).astype(np.uint8)
 
-    clahe = cv2.createCLAHE(clipLimit=float(clip_limit), tileGridSize=(int(tile_grid_size[0]), int(tile_grid_size[1])))
+    clahe = cv2.createCLAHE(
+        clipLimit=float(clip_limit),
+        tileGridSize=(int(tile_grid_size[0]), int(tile_grid_size[1])),
+    )
 
     # Grayscale
     if img_u8.ndim == 2:

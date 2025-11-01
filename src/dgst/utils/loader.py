@@ -7,6 +7,7 @@ import numpy as np
 from dgst import DATA_ROOT
 import copy
 
+
 class RegionOfInterest:
     def __init__(
         self,
@@ -33,22 +34,23 @@ class RegionOfInterest:
             p4=(float(self.p4[0]), float(self.p4[1])),
         )
 
+
 class Calibration:
     def __init__(self, calibration_data: dict):
         self.data = calibration_data
-        
+
         # Extract front camera calibration if available
-        if 'FC' in calibration_data:
-            fc = calibration_data['FC']
-            self.camera_type = fc.get('camera_type')
-            self.intrinsics = np.array(fc.get('intrinsics', []))
-            self.extrinsics = np.array(fc.get('extrinsics', []))
-            self.lidar_extrinsics = np.array(fc.get('lidar_extrinsics', []))
-            self.image_dimensions = fc.get('image_dimensions', [])
-            self.distortion = fc.get('distortion', [])
-            self.field_of_view = fc.get('field_of_view', [])
-            self.xi = fc.get('xi')
-            self.undistortion = fc.get('undistortion', [])
+        if "FC" in calibration_data:
+            fc = calibration_data["FC"]
+            self.camera_type = fc.get("camera_type")
+            self.intrinsics = np.array(fc.get("intrinsics", []))
+            self.extrinsics = np.array(fc.get("extrinsics", []))
+            self.lidar_extrinsics = np.array(fc.get("lidar_extrinsics", []))
+            self.image_dimensions = fc.get("image_dimensions", [])
+            self.distortion = fc.get("distortion", [])
+            self.field_of_view = fc.get("field_of_view", [])
+            self.xi = fc.get("xi")
+            self.undistortion = fc.get("undistortion", [])
         else:
             self.camera_type = None
             self.intrinsics = None
@@ -59,7 +61,7 @@ class Calibration:
             self.field_of_view = None
             self.xi = None
             self.undistortion = None
-    
+
     def __repr__(self):
         return f"Calibration(camera_type={self.camera_type}, image_dimensions={self.image_dimensions}, intrinsics={self.intrinsics}, distortion={self.distortion}, undistortion={self.undistortion})"
 
@@ -75,20 +77,34 @@ class Calibration:
             if isinstance(self.intrinsics, np.ndarray):
                 cloned.intrinsics = np.copy(self.intrinsics)
             else:
-                cloned.intrinsics = None if self.intrinsics is None else np.array(self.intrinsics)
+                cloned.intrinsics = (
+                    None
+                    if self.intrinsics is None
+                    else np.array(self.intrinsics)
+                )
 
             if isinstance(self.extrinsics, np.ndarray):
                 cloned.extrinsics = np.copy(self.extrinsics)
             else:
-                cloned.extrinsics = None if self.extrinsics is None else np.array(self.extrinsics)
+                cloned.extrinsics = (
+                    None
+                    if self.extrinsics is None
+                    else np.array(self.extrinsics)
+                )
 
             if isinstance(self.lidar_extrinsics, np.ndarray):
                 cloned.lidar_extrinsics = np.copy(self.lidar_extrinsics)
             else:
-                cloned.lidar_extrinsics = None if self.lidar_extrinsics is None else np.array(self.lidar_extrinsics)
+                cloned.lidar_extrinsics = (
+                    None
+                    if self.lidar_extrinsics is None
+                    else np.array(self.lidar_extrinsics)
+                )
         except Exception:
             # Fallback to deepcopy for any unexpected structure
-            cloned = Calibration(copy.deepcopy(self.data) if self.data is not None else {})
+            cloned = Calibration(
+                copy.deepcopy(self.data) if self.data is not None else {}
+            )
 
         # Copy simple fields
         cloned.camera_type = copy.deepcopy(self.camera_type)
@@ -100,8 +116,14 @@ class Calibration:
 
         return cloned
 
-class Image: 
-    def __init__(self, data: np.ndarray, rois: list[RegionOfInterest], calibration: Calibration = None):
+
+class Image:
+    def __init__(
+        self,
+        data: np.ndarray,
+        rois: list[RegionOfInterest],
+        calibration: Calibration = None,
+    ):
         self.data = data
         self.rois = rois
         self.calibration = calibration
@@ -111,7 +133,9 @@ class Image:
         for roi in self.rois:
             pts = np.array([roi.p1, roi.p2, roi.p3, roi.p4], np.int32)
             pts = pts.reshape((-1, 1, 2))
-            cv2.polylines(img_copy, [pts], isClosed=True, color=(0, 255, 0), thickness=2)
+            cv2.polylines(
+                img_copy, [pts], isClosed=True, color=(0, 255, 0), thickness=2
+            )
         self.data = img_copy
 
     def clone(self) -> "Image":
@@ -129,33 +153,41 @@ class Image:
                 # fallback to deepcopy
                 data_copy = copy.deepcopy(self.data)
 
-        rois_copy = [r.clone() for r in self.rois] if self.rois is not None else []
-        calibration_copy = self.calibration.clone() if self.calibration is not None else None
-        return Image(data=data_copy, rois=rois_copy, calibration=calibration_copy)
+        rois_copy = (
+            [r.clone() for r in self.rois] if self.rois is not None else []
+        )
+        calibration_copy = (
+            self.calibration.clone() if self.calibration is not None else None
+        )
+        return Image(
+            data=data_copy, rois=rois_copy, calibration=calibration_copy
+        )
+
 
 class DataLoader:
     def __init__(self, path=DATA_ROOT):
         self._path = path
 
-
     def load_image(self, number: int) -> np.ndarray:
         image_path = os.path.join(self._path, str(number).zfill(6))
-        
+
         image_path = os.path.join(image_path, "camera_front_blur")
         image_path = os.path.join(image_path, os.listdir(image_path)[0])
         print(f"Loading image from {image_path}")
         image = cv2.imread(image_path)
         return image
-    
+
     def load_metadata(self, number: str) -> list[RegionOfInterest]:
         image_path = os.path.join(self._path, str(number).zfill(6))
-        metadata_path = os.path.join(image_path, "annotations/traffic_signs.json")
+        metadata_path = os.path.join(
+            image_path, "annotations/traffic_signs.json"
+        )
         result = []
         if os.path.exists(metadata_path):
-            with open(metadata_path, 'r') as f:
+            with open(metadata_path, "r") as f:
                 metadata = json.load(f)
                 for item in metadata:
-                    coordinates = item['geometry']['coordinates']
+                    coordinates = item["geometry"]["coordinates"]
                     roi = RegionOfInterest(
                         p1=(coordinates[0][0], coordinates[0][1]),
                         p2=(coordinates[1][0], coordinates[1][1]),
@@ -164,14 +196,16 @@ class DataLoader:
                     )
                     result.append(roi)
 
-        metadata_path = os.path.join(image_path, "annotations/object_detection.json")
+        metadata_path = os.path.join(
+            image_path, "annotations/object_detection.json"
+        )
         if os.path.exists(metadata_path):
-            with open(metadata_path, 'r') as f:
+            with open(metadata_path, "r") as f:
                 metadata = json.load(f)
                 for item in metadata:
-                    properties = item['properties']
-                    if properties['class'] == 'TrafficSign':
-                        coordinates = item['geometry']['coordinates']
+                    properties = item["properties"]
+                    if properties["class"] == "TrafficSign":
+                        coordinates = item["geometry"]["coordinates"]
                         roi = RegionOfInterest(
                             p1=(coordinates[0][0], coordinates[0][1]),
                             p2=(coordinates[1][0], coordinates[1][1]),
@@ -184,9 +218,9 @@ class DataLoader:
     def load_calibration(self, number: int) -> Calibration:
         image_path = os.path.join(self._path, str(number).zfill(6))
         calibration_path = os.path.join(image_path, "calibration.json")
-        
+
         if os.path.exists(calibration_path):
-            with open(calibration_path, 'r') as f:
+            with open(calibration_path, "r") as f:
                 calibration_data = json.load(f)
                 return Calibration(calibration_data)
         return None

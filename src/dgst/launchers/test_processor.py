@@ -14,13 +14,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from dgst.utils.processor import ImageProcessor
 
+
 def main():
-   
+
     loader = DataLoader(PROJECT_ROOT + "/notebooks/images/bt1/")
     image = loader.load(14)
 
-
-    processor = (ImageProcessor()
+    processor = (
+        ImageProcessor()
         .add_kannala_brandt_undistortion()
         .add_grayscale()
         .add_gaussian_filter(sigma=1.4)
@@ -30,7 +31,7 @@ def main():
 
     image = processor.process(image)
 
-    image.data = cv2.resize(image.data, (0,0), fx=0.3, fy=0.3)
+    image.data = cv2.resize(image.data, (0, 0), fx=0.3, fy=0.3)
 
     cv2.imshow("Processed Image", image.data)
     cv2.waitKey(0)

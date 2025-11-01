@@ -303,4 +303,46 @@ int32_t ransac_line_fitting(const bool* input, size_t width, size_t height,
                             uint32_t max_lsq_iterations, uint32_t min_inlier_count,
                             float* a, float* b, float* c);
 
+<<<<<<< HEAD
 #endif // DGST_FILTERS_H
+=======
+/**
+ * @brief Fits a circle to edge points in a binary edge map using the RANSAC algorithm.
+ *
+ * This function identifies the best-fitting circle in a binary edge map by iteratively
+ * sampling edge points and evaluating inliers based on a distance threshold. The circle
+ * is represented by its center coordinates (center_x, center_y) and radius.
+ * @param input Pointer to the input binary edge map (row-major order).
+ *                 Each pixel is a bool value (true for edge, false for non-edge). Must not be NULL.
+ * @param width Width of the edge map in pixels. Must be > 0.
+ * @param height Height of the edge map in pixels. Must be > 0.
+ * @param distance_threshold Maximum distance from circle to consider a point as an inlier. Must be > 0.0f.
+ * @param max_iterations Maximum number of RANSAC iterations to perform. Must be > 0.
+ * @param min_inlier_ratio Minimum ratio of inliers to radius to accept a circle. Recommended minimum is 3.
+ * @param min_radius Minimum radius of the circle to be considered valid. Must be >= 0.0f.
+ * @param max_radius Maximum radius of the circle to be considered valid. Must be > min_radius.
+ * @param center_x Pointer to output parameter for circle center x-coordinate. Must not be NULL.
+ * @param center_y Pointer to output parameter for circle center y-coordinate. Must not be NULL.
+ * @param radius Pointer to output parameter for circle radius. Must not be NULL.
+ * @return Returns 0 on success, negative values on error:
+ *         -1: Invalid parameters (NULL pointers, zero dimensions, non-positive thresholds)
+ *         -2: Image too large (width * height > 16,000,000 pixels)
+ *         -3: Memory allocation failure for temporary buffers
+ *         -4: Not enough edge points to fit a circle
+ *         -5: No circle found with sufficient inliers
+ * @note Algorithm details:
+ *       - Randomly samples triplets of edge points to define candidate circles
+ *       - Counts inliers within distance_threshold for each candidate circle
+ *       - Retains the circle with the highest inlier count exceeding min_inlier_count
+ *       - Time complexity: O(max_iterations * number_of_edge_points)
+ *       - Space complexity: O(number_of_edge_points) for storing edge point coordinates
+ * @warning Undefined behavior if input/output pointers are NULL or if
+ *          output parameters center_x, center_y, radius are NULL.
+ */
+int32_t ransac_circle_fitting(const bool* input, size_t width, size_t height,
+                              float distance_threshold, uint32_t max_iterations,
+                              float min_inlier_ratio, float min_radius, float max_radius,
+                              float* center_x, float* center_y, float* radius);
+                            
+#endif // DGST_FILTERS_H
+>>>>>>> main

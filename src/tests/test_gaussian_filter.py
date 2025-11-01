@@ -11,6 +11,7 @@ TEST_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "images/lenna.png")
 # Tests for gaussian_filter.
 # ---------------------------------------------------------------
 
+
 def test_gaussian_filter_wrong_dtype():
     img = np.ones((10, 10), dtype=np.float32)
     with pytest.raises(ValueError):

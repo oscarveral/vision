@@ -3,7 +3,9 @@ import ctypes as ffi
 import os
 
 # Load the shared library.
-lib_path = os.path.join(os.path.dirname(__file__), "__objs__/libfilters.so.1.0.0")
+lib_path = os.path.join(
+    os.path.dirname(__file__), "__objs__/libfilters.so.1.0.0"
+)
 libfilter = ffi.cdll.LoadLibrary(lib_path)
 
 # Function box_filter from the C library.
@@ -15,6 +17,7 @@ libfilter.box_filter.argtypes = (
     ffi.c_size_t,
 )
 libfilter.box_filter.restype = ffi.c_int32
+
 
 # Python wrapper for the box_filter function.
 def box_filter(input_image: np.ndarray, filter_size: int) -> np.ndarray:
@@ -30,7 +33,9 @@ def box_filter(input_image: np.ndarray, filter_size: int) -> np.ndarray:
     c_input = input_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
     c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
 
-    result = libfilter.box_filter(c_input, c_output, width, height, filter_size)
+    result = libfilter.box_filter(
+        c_input, c_output, width, height, filter_size
+    )
     if result != 0:
         raise RuntimeError("Box filter failed in C library.")
 
@@ -84,17 +89,19 @@ libfilter.canny_edge_detection.restype = ffi.c_int32
 
 
 # Python wrapper for the canny_edge_detection function.
-def canny_edge_detection(input_image: np.ndarray, low_threshold: float, high_threshold: float) -> np.ndarray:
+def canny_edge_detection(
+    input_image: np.ndarray, low_threshold: float, high_threshold: float
+) -> np.ndarray:
     """Apply Canny edge detection to a pre-smoothed grayscale image using the C function.
-    
-    This function expects a pre-smoothed input. For best results, apply Gaussian 
+
+    This function expects a pre-smoothed input. For best results, apply Gaussian
     smoothing (sigma ~1.4) before calling this function.
-    
+
     Args:
         input_image: Pre-smoothed grayscale image as uint8 2D numpy array
         low_threshold: Lower threshold for hysteresis (weak edges)
         high_threshold: Upper threshold for hysteresis (strong edges)
-    
+
     Returns:
         Binary edge map with 255 for edges, 0 for non-edges
     """
@@ -110,10 +117,17 @@ def canny_edge_detection(input_image: np.ndarray, low_threshold: float, high_thr
     c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
 
     result = libfilter.canny_edge_detection(
-        c_input, c_output, width, height, ffi.c_float(low_threshold), ffi.c_float(high_threshold)
+        c_input,
+        c_output,
+        width,
+        height,
+        ffi.c_float(low_threshold),
+        ffi.c_float(high_threshold),
     )
     if result != 0:
-        raise RuntimeError(f"Canny edge detection failed in C library with error code {result}.")
+        raise RuntimeError(
+            f"Canny edge detection failed in C library with error code {result}."
+        )
 
     return output_image
 
@@ -130,22 +144,26 @@ libfilter.kannala_brandt_undistort.argtypes = (
 )
 libfilter.kannala_brandt_undistort.restype = ffi.c_int32
 
+
 # Python wrapper for the kannala_brandt_undistort function.
-def kannala_brandt_undistort(input_image: np.ndarray, intrinsics_3x3: np.ndarray, 
-                              distortion_4: np.ndarray) -> np.ndarray:
+def kannala_brandt_undistort(
+    input_image: np.ndarray,
+    intrinsics_3x3: np.ndarray,
+    distortion_4: np.ndarray,
+) -> np.ndarray:
     """Apply Kannala-Brandt fisheye undistortion to an image using the C function.
-    
+
     Args:
         input_image: Input image as uint8 numpy array (grayscale or RGB)
         intrinsics_3x3: Camera intrinsic matrix (3x3) containing [fx, 0, cx; 0, fy, cy; 0, 0, 1]
         distortion_4: Array of 4 distortion coefficients [k1, k2, k3, k4]
-    
+
     Returns:
         Undistorted image with same shape as input
     """
     if input_image.dtype != np.uint8:
         raise ValueError("Input image must be of type uint8.")
-    
+
     if len(input_image.shape) == 2:
         # Grayscale image
         height, width = input_image.shape
@@ -156,33 +174,39 @@ def kannala_brandt_undistort(input_image: np.ndarray, intrinsics_3x3: np.ndarray
         if channels != 3:
             raise ValueError("Color images must have 3 channels (RGB/BGR).")
     else:
-        raise ValueError("Input image must be a 2D (grayscale) or 3D (color) array.")
-    
+        raise ValueError(
+            "Input image must be a 2D (grayscale) or 3D (color) array."
+        )
+
     if intrinsics_3x3.shape != (3, 3):
         raise ValueError("Intrinsics matrix must be 3x3.")
-    
+
     if distortion_4.shape != (4,):
         raise ValueError("Distortion coefficients must have 4 elements.")
-    
+
     # Ensure contiguous arrays
     input_image = np.ascontiguousarray(input_image)
-    intrinsics_flat = np.ascontiguousarray(intrinsics_3x3.flatten().astype(np.float32))
+    intrinsics_flat = np.ascontiguousarray(
+        intrinsics_3x3.flatten().astype(np.float32)
+    )
     distortion_flat = np.ascontiguousarray(distortion_4.astype(np.float32))
-    
+
     output_image = np.zeros_like(input_image)
-    
+
     c_input = input_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
     c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
     c_intrinsics = intrinsics_flat.ctypes.data_as(ffi.POINTER(ffi.c_float))
     c_distortion = distortion_flat.ctypes.data_as(ffi.POINTER(ffi.c_float))
-    
+
     result = libfilter.kannala_brandt_undistort(
         c_input, c_output, width, height, channels, c_intrinsics, c_distortion
     )
-    
+
     if result != 0:
-        raise RuntimeError(f"Kannala-Brandt undistortion failed in C library with error code {result}.")
-    
+        raise RuntimeError(
+            f"Kannala-Brandt undistortion failed in C library with error code {result}."
+        )
+
     return output_image
 
 
@@ -190,14 +214,16 @@ def kannala_brandt_undistort(input_image: np.ndarray, intrinsics_3x3: np.ndarray
 libfilter.kannala_brandt_map_points_to_undistorted.argtypes = (
     ffi.POINTER(ffi.c_float),  # points_in
     ffi.POINTER(ffi.c_float),  # points_out
-    ffi.c_size_t,              # n_points
+    ffi.c_size_t,  # n_points
     ffi.POINTER(ffi.c_float),  # intrinsics_3x3
     ffi.POINTER(ffi.c_float),  # distortion_4
 )
 libfilter.kannala_brandt_map_points_to_undistorted.restype = ffi.c_int32
 
 
-def kannala_brandt_map_points_to_undistorted(points: np.ndarray, intrinsics_3x3: np.ndarray, distortion_4: np.ndarray) -> np.ndarray:
+def kannala_brandt_map_points_to_undistorted(
+    points: np.ndarray, intrinsics_3x3: np.ndarray, distortion_4: np.ndarray
+) -> np.ndarray:
     """Map an array of points (Nx2) from distorted image coordinates to undistorted coordinates.
 
     Args:
@@ -223,12 +249,20 @@ def kannala_brandt_map_points_to_undistorted(points: np.ndarray, intrinsics_3x3:
 
     c_in = pts_flat.ctypes.data_as(ffi.POINTER(ffi.c_float))
     c_out = out_flat.ctypes.data_as(ffi.POINTER(ffi.c_float))
-    c_intrinsics = np.ascontiguousarray(intrinsics_3x3.flatten(), dtype=np.float32).ctypes.data_as(ffi.POINTER(ffi.c_float))
-    c_dist = np.ascontiguousarray(distortion_4.astype(np.float32)).ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_intrinsics = np.ascontiguousarray(
+        intrinsics_3x3.flatten(), dtype=np.float32
+    ).ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_dist = np.ascontiguousarray(
+        distortion_4.astype(np.float32)
+    ).ctypes.data_as(ffi.POINTER(ffi.c_float))
 
-    result = libfilter.kannala_brandt_map_points_to_undistorted(c_in, c_out, n_points, c_intrinsics, c_dist)
+    result = libfilter.kannala_brandt_map_points_to_undistorted(
+        c_in, c_out, n_points, c_intrinsics, c_dist
+    )
     if result != 0:
-        raise RuntimeError(f"Kannala-Brandt point mapping failed in C library with error code {result}.")
+        raise RuntimeError(
+            f"Kannala-Brandt point mapping failed in C library with error code {result}."
+        )
 
     return out_flat.reshape((n_points, 2))
 
@@ -237,25 +271,27 @@ def kannala_brandt_map_points_to_undistorted(points: np.ndarray, intrinsics_3x3:
 libfilter.phase_congruency.argtypes = (
     ffi.POINTER(ffi.c_uint8),  # input
     ffi.POINTER(ffi.c_uint8),  # output (uint8, values in [0,255])
-    ffi.c_size_t,              # width
-    ffi.c_size_t,              # height
-    ffi.c_int32,               # nscale
-    ffi.c_int32,               # norient
-    ffi.c_float,               # min_wavelength
-    ffi.c_float,               # mult
-    ffi.c_float,               # sigma_onf
-    ffi.c_float,               # eps
+    ffi.c_size_t,  # width
+    ffi.c_size_t,  # height
+    ffi.c_int32,  # nscale
+    ffi.c_int32,  # norient
+    ffi.c_float,  # min_wavelength
+    ffi.c_float,  # mult
+    ffi.c_float,  # sigma_onf
+    ffi.c_float,  # eps
 )
 libfilter.phase_congruency.restype = ffi.c_int32
 
 
-def phase_congruency(input_image: np.ndarray,
-                     nscale: int,
-                     norient: int,
-                     min_wavelength: float,
-                     mult: float,
-                     sigma_onf: float,
-                     eps: float) -> np.ndarray:
+def phase_congruency(
+    input_image: np.ndarray,
+    nscale: int,
+    norient: int,
+    min_wavelength: float,
+    mult: float,
+    sigma_onf: float,
+    eps: float,
+) -> np.ndarray:
     """Compute phase congruency on a grayscale image using the C implementation.
 
     Args:
@@ -300,9 +336,12 @@ def phase_congruency(input_image: np.ndarray,
     )
 
     if result != 0:
-        raise RuntimeError(f"Phase congruency failed in C library with error code {result}.")
+        raise RuntimeError(
+            f"Phase congruency failed in C library with error code {result}."
+        )
 
     return output_image
+
 
 # C-backed threshold filter: expects float32 input and produces float32 output (0.0/1.0)
 libfilter.threshold_filter.argtypes = (
@@ -343,9 +382,13 @@ def threshold_filter(input_image: np.ndarray, threshold: float) -> np.ndarray:
     c_input = img.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
     c_output = output_image.ctypes.data_as(ffi.POINTER(ffi.c_uint8))
 
-    result = libfilter.threshold_filter(c_input, c_output, width, height, ffi.c_float(threshold))
+    result = libfilter.threshold_filter(
+        c_input, c_output, width, height, ffi.c_float(threshold)
+    )
     if result != 0:
-        raise RuntimeError(f"Threshold filter failed in C library with error code {result}.")
+        raise RuntimeError(
+            f"Threshold filter failed in C library with error code {result}."
+        )
 
     return output_image
 
@@ -361,6 +404,7 @@ libfilter.ransac_line_fitting.argtypes = (
     ffi.c_uint32,
     ffi.POINTER(ffi.c_float),
     ffi.POINTER(ffi.c_float),
+<<<<<<< HEAD
     ffi.POINTER(ffi.c_float)
 )
 
@@ -370,6 +414,18 @@ def ransac_line_fitting(
         max_lsq_iterations: int,
         distance_threshold: float, 
         min_inlier_count: int,
+=======
+    ffi.POINTER(ffi.c_float),
+)
+
+
+def ransac_line_fitting(
+    edge_map: np.ndarray,
+    max_iterations: int,
+    max_lsq_iterations: int,
+    distance_threshold: float,
+    min_inlier_count: int,
+>>>>>>> main
 ) -> tuple:
     """Fit a line to edge points using RANSAC via the C function.
 
@@ -405,12 +461,101 @@ def ransac_line_fitting(
         ffi.c_uint32(min_inlier_count),
         ffi.byref(a),
         ffi.byref(b),
+<<<<<<< HEAD
         ffi.byref(c)
     )
     if -4 < result < 0:
         print("RANSAC line fitting failed in C library with error code", result, file=sys.stderr)
+=======
+        ffi.byref(c),
+    )
+    if -4 < result < 0:
+        print(
+            "RANSAC line fitting failed in C library with error code",
+            result,
+            file=sys.stderr,
+        )
+>>>>>>> main
         return None
     elif result != 0:
         return None
 
     return (a.value, b.value, c.value)
+<<<<<<< HEAD
+=======
+
+
+# Function RANSAC circle fitting from the C library.
+libfilter.ransac_circle_fitting.argtypes = (
+    ffi.POINTER(ffi.c_bool),
+    ffi.c_size_t,
+    ffi.c_size_t,
+    ffi.c_float,
+    ffi.c_uint32,
+    ffi.c_float,
+    ffi.c_float,
+    ffi.c_float,
+    ffi.POINTER(ffi.c_float),
+    ffi.POINTER(ffi.c_float),
+    ffi.POINTER(ffi.c_float),
+)
+
+
+def ransac_circle_fitting(
+    edge_map: np.ndarray,
+    max_iterations: int,
+    distance_threshold: float,
+    min_inlier_ratio: float,
+    min_radius: float,
+    max_radius: float,
+) -> tuple:
+    """Fit a circle to edge points using RANSAC via the C function.
+
+    Args:
+        edge_map: Binary edge map as a 2D numpy array of type bool
+        max_iterations: Number of RANSAC iterations
+        distance_threshold: Distance threshold to consider a point as an inlier
+        min_inlier_ratio: Minimum ratio of inliers to radius to accept a model
+        min_radius: Minimum radius of the circle to be detected
+        max_radius: Maximum radius of the circle to be detected
+
+    Returns:
+        A tuple (center_x, center_y, radius) representing the circle equation (x - center_x)^2 + (y - center_y)^2 = radius^2
+    """
+    if edge_map.dtype != np.bool_:
+        raise ValueError("Edge map must be of type bool.")
+    if len(edge_map.shape) != 2:
+        raise ValueError("Edge map must be a 2D array.")
+
+    height, width = edge_map.shape
+
+    c_edge_map = edge_map.ctypes.data_as(ffi.POINTER(ffi.c_bool))
+    center_x = ffi.c_float()
+    center_y = ffi.c_float()
+    radius = ffi.c_float()
+
+    result = libfilter.ransac_circle_fitting(
+        c_edge_map,
+        ffi.c_size_t(width),
+        ffi.c_size_t(height),
+        ffi.c_float(distance_threshold),
+        ffi.c_uint32(max_iterations),
+        ffi.c_float(min_inlier_ratio),
+        ffi.c_float(min_radius),
+        ffi.c_float(max_radius),
+        ffi.byref(center_x),
+        ffi.byref(center_y),
+        ffi.byref(radius),
+    )
+    if -4 < result < 0:
+        print(
+            "RANSAC circle fitting failed in C library with error code",
+            result,
+            file=sys.stderr,
+        )
+        return None
+    elif result != 0:
+        return None
+
+    return (center_x.value, center_y.value, radius.value)
+>>>>>>> main
