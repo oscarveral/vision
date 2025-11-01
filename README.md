@@ -1,7 +1,10 @@
 # Detección Genial de Señales de Tráfico (DGST)
 
 TODO: Description.
+
 ## Autores
+
+
  Prototipos de Visión Artificial
  
  Proyecto reorganizado con estructura estándar de Python.

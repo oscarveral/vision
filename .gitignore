@@ -213,7 +213,7 @@ marimo/_lsp/
 __marimo__/
 
 # FFI
-src/dgst/ffi/__objs__
+src/dgst/filters/ffi/__objs__
 
 # JetBrains
 .idea
