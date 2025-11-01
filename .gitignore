@@ -226,3 +226,6 @@ data/
 
 # Via notebooks
 06_RectasRANSACyHT_C.ipynb
+
+# NPY files
+*.npy
