@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from dgst.utils.loader import DataLoader
-from dgst import DATA_ROOT
+from dgst import PROJECT_ROOT
 
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -16,7 +16,7 @@ from dgst.utils.processor import ImageProcessor
 
 def main():
    
-    loader = DataLoader(DATA_ROOT + "/single_frames")
+    loader = DataLoader(PROJECT_ROOT + "/notebooks/images/bt1/")
     image = loader.load(14)
 
 

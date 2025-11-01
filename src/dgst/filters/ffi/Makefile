@@ -9,7 +9,7 @@ libfilters.so: libfilters.so.1.0.0
 
 # Compiler and flags
 CC := clang
-CFLAGS := -std=c23 -fopenmp=libomp -Wall -Wextra -Wpedantic -O3 -march=native -mavx -mavx2 -mavx512f -mfma -mtune=native -fPIC
+CFLAGS := -std=c23 -fopenmp=libomp -Wall -Wextra -Wpedantic -O3 -march=native -mavx -mavx2 -mfma -mtune=native -fPIC
 LDFLAGS := -lm
 
 # Source files.
