@@ -247,8 +247,6 @@ int32_t kannala_brandt_map_points_to_undistorted(const float* points_in, float* 
  */
 int32_t phase_congruency(const uint8_t* input, uint8_t* output, size_t width, size_t height, int32_t nscale, int32_t norient, float min_wavelength, float mult, float sigma_onf, float eps);
 
-#endif // DGST_FILTERS_H
-
 /**
  * @brief Threshold a uint8 image producing a uint8 binary output map with 0 or 255
  *
@@ -266,3 +264,43 @@ int32_t phase_congruency(const uint8_t* input, uint8_t* output, size_t width, si
  *         -2: Image too large (width * height > 16,000,000)
  */
 int32_t threshold_filter(const uint8_t* input, uint8_t* output, size_t width, size_t height, float threshold);
+
+/**
+ * @brief Fits a line to edge points in a binary edge map using the RANSAC algorithm.
+ *
+ * This function identifies the best-fitting line in a binary edge map by iteratively
+ * sampling edge points and evaluating inliers based on a distance threshold. The line
+ * is represented in the general form Ax + By + C = 0.
+ * @param input Pointer to the input binary edge map (row-major order).
+ *                 Each pixel is a bool value (true for edge, false for non-edge). Must not be NULL.
+ * @param width Width of the edge map in pixels. Must be > 0.
+ * @param height Height of the edge map in pixels. Must be > 0.
+ * @param distance_threshold Maximum distance from line to consider a point as an inlier. Must be > 0.0f.
+ * @param max_iterations Maximum number of RANSAC iterations to perform. Must be > 0.
+ * @param max_lsq_iterations Maximum number of least squares refinement iterations. Set to 0 to skip refinement.
+ * @param min_inlier_count Minimum number of inliers required to accept a line. Must be > 0.
+ * @param a Pointer to output parameter for line coefficient A. Must not be NULL.
+ * @param b Pointer to output parameter for line coefficient B. Must not be NULL.
+ * @param c Pointer to output parameter for line coefficient C. Must not be NULL.
+ * @return Returns 0 on success, negative values on error:
+ *         -1: Invalid parameters (NULL pointers, zero dimensions, non-positive thresholds)
+ *         -2: Image too large (width * height > 16,000,000 pixels)
+ *         -3: Memory allocation failure for temporary buffers
+ *         -4: Not enough edge points to fit a line
+ *         -5: No line found with sufficient inliers
+ * @note Algorithm details:
+ *       - Randomly samples pairs of edge points to define candidate lines
+ *       - Counts inliers within distance_threshold for each candidate line
+ *       - Retains the line with the highest inlier count exceeding min_inlier_count
+ *       - Optionally refines the best line using least squares fitting on inliers
+ *       - Time complexity: O(max_iterations * number_of_edge_points + max_lsq_iterations * number_of_inliers)
+ *       - Space complexity: O(number_of_edge_points) for storing edge point coordinates
+ * @warning Undefined behavior if input/output pointers are NULL or if
+ *          output parameters a, b, c are NULL.
+ */
+int32_t ransac_line_fitting(const bool* input, size_t width, size_t height,
+                            float distance_threshold, uint32_t max_iterations,
+                            uint32_t max_lsq_iterations, uint32_t min_inlier_count,
+                            float* a, float* b, float* c);
+
+#endif // DGST_FILTERS_H

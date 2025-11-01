@@ -348,3 +348,69 @@ def threshold_filter(input_image: np.ndarray, threshold: float) -> np.ndarray:
         raise RuntimeError(f"Threshold filter failed in C library with error code {result}.")
 
     return output_image
+
+
+# Function RANSAC line fitting from the C library.
+libfilter.ransac_line_fitting.argtypes = (
+    ffi.POINTER(ffi.c_bool),
+    ffi.c_size_t,
+    ffi.c_size_t,
+    ffi.c_float,
+    ffi.c_uint32,
+    ffi.c_uint32,
+    ffi.c_uint32,
+    ffi.POINTER(ffi.c_float),
+    ffi.POINTER(ffi.c_float),
+    ffi.POINTER(ffi.c_float)
+)
+
+def ransac_line_fitting(
+        edge_map: np.ndarray,
+        max_iterations: int,
+        max_lsq_iterations: int,
+        distance_threshold: float, 
+        min_inlier_count: int,
+) -> tuple:
+    """Fit a line to edge points using RANSAC via the C function.
+
+    Args:
+        edge_map: Binary edge map as a 2D numpy array of type bool
+        max_iterations: Number of RANSAC iterations
+        max_lsq_iterations: Number of least squares refinement iterations. Set to 0 to skip refinement.
+        distance_threshold: Distance threshold to consider a point as an inlier
+        min_inlier_count: Minimum number of inliers to accept a model
+
+    Returns:
+        A tuple (a, b, c) representing the line equation ax + by + c = 0
+    """
+    if edge_map.dtype != np.bool_:
+        raise ValueError("Edge map must be of type bool.")
+    if len(edge_map.shape) != 2:
+        raise ValueError("Edge map must be a 2D array.")
+
+    height, width = edge_map.shape
+
+    c_edge_map = edge_map.ctypes.data_as(ffi.POINTER(ffi.c_bool))
+    a = ffi.c_float()
+    b = ffi.c_float()
+    c = ffi.c_float()
+
+    result = libfilter.ransac_line_fitting(
+        c_edge_map,
+        ffi.c_size_t(width),
+        ffi.c_size_t(height),
+        ffi.c_float(distance_threshold),
+        ffi.c_uint32(max_iterations),
+        ffi.c_uint32(max_lsq_iterations),
+        ffi.c_uint32(min_inlier_count),
+        ffi.byref(a),
+        ffi.byref(b),
+        ffi.byref(c)
+    )
+    if -4 < result < 0:
+        print("RANSAC line fitting failed in C library with error code", result, file=sys.stderr)
+        return None
+    elif result != 0:
+        return None
+
+    return (a.value, b.value, c.value)
