@@ -181,3 +181,122 @@ int32_t ransac_line_fitting(
     *c = best_c;
     return 0;
 }
+
+int32_t ransac_circle_fitting(
+    const bool* input, 
+    size_t width,
+    size_t height,
+    float distance_threshold, 
+    uint32_t max_iterations,
+    float min_inlier_ratio,
+    float min_radius,
+    float max_radius,
+    float* center_x, 
+    float* center_y, 
+    float* radius) {
+
+    // Validate input parameters.
+    if (!input || !center_x || !center_y || !radius || width == 0 || height == 0 || 
+        distance_threshold <= 0.0f || max_iterations == 0 || 
+        min_inlier_ratio <= 0.0f || max_radius <= min_radius || min_radius < 0.0f) {
+        return -1;
+    }
+
+    // Limit image size.
+    if (width * height > 16000000UL) {
+        return -2;
+    } 
+
+    // Allocate memory for edge point coordinates.
+    float* xs = (float*) malloc(width * height * sizeof(float));
+    float* ys = (float*) malloc(width * height * sizeof(float));
+    if (!xs || !ys) {
+        free(xs); free(ys);
+        return -3;
+    }
+
+    // Count edge points and store their coordinates.
+    size_t point_count = 0;
+    for (size_t y = 0; y < height; y++) {
+        for (size_t x = 0; x < width; x++) {
+            if (input[y * width + x]) {
+                xs[point_count] = (float)x;
+                ys[point_count] = (float)y;
+                point_count++;
+            }
+        }
+    }
+
+    if (point_count < 3) {
+        free(xs); free(ys);
+        return -4;
+    }
+
+    // RANSAC loop.
+    srand((unsigned) time(NULL));
+
+    float best_inlier_ratio = 0.0f;
+    float best_cx = 0.0f, best_cy = 0.0f, best_r = 0.0f;
+    
+    for (size_t i=0; i<max_iterations; i++) {
+        size_t idx1 = rand() % point_count;
+        size_t idx2 = rand() % point_count;
+        while (idx2 == idx1) {
+            idx2 = rand() % point_count;
+        }
+        size_t idx3 = rand() % point_count;
+        while (idx3 == idx1 || idx3 == idx2) {
+            idx3 = rand() % point_count;
+        }
+        float x1 = xs[idx1], y1 = ys[idx1];
+        float x2 = xs[idx2], y2 = ys[idx2];
+        float x3 = xs[idx3], y3 = ys[idx3];
+
+        // Check for collinearity.
+        float A = x1 * (y2 - y3) - y1 * (x2 - x3) + x2 * y3 - x3 * y2;
+        if (fabsf(A) < 1e-6f) {
+            continue; // Points are collinear.
+        }
+
+        // Compute circle center and radius.
+        float B = (x1 * x1 + y1 * y1) * (y3 - y2) + (x2 * x2 + y2 * y2) * (y1 - y3) + (x3 * x3 + y3 * y3) * (y2 - y1);
+        float C = (x1 * x1 + y1 * y1) * (x2 - x3) + (x2 * x2 + y2 * y2) * (x3 - x1) + (x3 * x3 + y3 * y3) * (x1 - x2);
+        float cx = -B / (2 * A);
+        float cy = -C / (2 * A);
+        float r = sqrtf((cx - x1) * (cx - x1) + (cy - y1) * (cy - y1));
+
+        if (r > max_radius || r < min_radius) {
+            continue; // Skip circles that exceed max radius and min radius.
+        }
+
+        // Count inliers.
+        size_t inlier_count = 0;
+        for (size_t j = 0; j < point_count; j++) {
+            float dist = fabsf(sqrtf((xs[j] - cx) * (xs[j] - cx) + (ys[j] - cy) * (ys[j] - cy)) - r);
+            if (dist <= distance_threshold) {
+                inlier_count++;
+            }
+        }
+
+        // Update best circle if current one is better.
+        float inlier_ratio = (float)inlier_count / r;
+        if (inlier_ratio > best_inlier_ratio) {
+            best_inlier_ratio = inlier_ratio;
+            best_cx = cx;
+            best_cy = cy;
+            best_r = r;
+        }
+    }
+
+    // Check if we found a valid circle.
+    if (best_inlier_ratio >= min_inlier_ratio) {
+        *center_x = best_cx;
+        *center_y = best_cy;
+        *radius = best_r;
+        free(xs); free(ys);
+        return 0;
+    }
+
+    free(xs); free(ys);
+    return -5;
+}

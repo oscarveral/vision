@@ -182,3 +182,72 @@ def ransac_line_fitting(
         return None
 
     return (a.value, b.value, c.value)
+
+# Function RANSAC circle fitting from the C library.
+libfilter.ransac_circle_fitting.argtypes = (
+    ffi.POINTER(ffi.c_bool),
+    ffi.c_size_t,
+    ffi.c_size_t,
+    ffi.c_float,
+    ffi.c_uint32,
+    ffi.c_float,
+    ffi.c_float,
+    ffi.c_float,
+    ffi.POINTER(ffi.c_float),
+    ffi.POINTER(ffi.c_float),
+    ffi.POINTER(ffi.c_float)
+)
+
+def ransac_circle_fitting(
+        edge_map: np.ndarray,
+        max_iterations: int,
+        distance_threshold: float, 
+        min_inlier_ratio: float,
+        min_radius: float,
+        max_radius: float,
+) -> tuple:
+    """Fit a circle to edge points using RANSAC via the C function.
+
+    Args:
+        edge_map: Binary edge map as a 2D numpy array of type bool
+        max_iterations: Number of RANSAC iterations
+        distance_threshold: Distance threshold to consider a point as an inlier
+        min_inlier_ratio: Minimum ratio of inliers to radius to accept a model
+        min_radius: Minimum radius of the circle to be detected
+        max_radius: Maximum radius of the circle to be detected
+
+    Returns:
+        A tuple (center_x, center_y, radius) representing the circle equation (x - center_x)^2 + (y - center_y)^2 = radius^2
+    """
+    if edge_map.dtype != np.bool_:
+        raise ValueError("Edge map must be of type bool.")
+    if len(edge_map.shape) != 2:
+        raise ValueError("Edge map must be a 2D array.")
+
+    height, width = edge_map.shape
+
+    c_edge_map = edge_map.ctypes.data_as(ffi.POINTER(ffi.c_bool))
+    center_x = ffi.c_float()
+    center_y = ffi.c_float()
+    radius = ffi.c_float()
+
+    result = libfilter.ransac_circle_fitting(
+        c_edge_map,
+        ffi.c_size_t(width),
+        ffi.c_size_t(height),
+        ffi.c_float(distance_threshold),
+        ffi.c_uint32(max_iterations),
+        ffi.c_float(min_inlier_ratio),
+        ffi.c_float(min_radius),
+        ffi.c_float(max_radius),
+        ffi.byref(center_x),
+        ffi.byref(center_y),
+        ffi.byref(radius)
+    )
+    if -4 < result < 0:
+        print("RANSAC circle fitting failed in C library with error code", result, file=sys.stderr)
+        return None
+    elif result != 0:
+        return None
+
+    return (center_x.value, center_y.value, radius.value)

@@ -1,6 +1,6 @@
 import numpy as np
 
-from dgst.ffi.wrapper import ransac_line_fitting
+from dgst.ffi.wrapper import ransac_line_fitting, ransac_circle_fitting
 
 class FeatureExtractor:
     """Image features extractor.
@@ -33,7 +33,7 @@ class FeatureExtractor:
         Returns:
             A tuple (a, b, c) representing the line equation ax + by + c = 0 
         """
-        if min_inliers <= 0:
+        if min_inliers_ratio <= 0:
             raise ValueError("Minimum number of inliers must be positive.")
         if max_lsq_iterations < 0:
             raise ValueError("Maximum number of least squares iterations cannot be negative.") 
@@ -326,3 +326,77 @@ class FeatureExtractor:
             The current edge image.
         """
         return self._edge_image
+    
+    def ransac_circle_fitting(
+            self,
+            max_iterations: int,
+            distance_threshold: float,
+            min_inlier_ratio: float,
+            min_radius: float = 0.0,
+            max_radius: float = 0.0,
+            erase: bool = False
+    ) -> tuple:
+        """Fit a circle to edge points using RANSAC.
+
+        Args:
+            max_iterations: Number of RANSAC iterations
+            distance_threshold: Distance threshold to consider a point as an inlier
+            min_inlier_ratio: Minimum ratio of inliers to radius to accept a model. Recommended minimum is 3.
+            min_radius: Minimum radius of the circle to be detected. Set to 0 to skip this check.
+            max_radius: Maximum radius of the circle to be detected. Set to 0 to skip this check.
+            erase: If True, remove the inliers of the detected circle from the edge image.
+
+        Returns:
+            A tuple (x_center, y_center, radius) representing the circle parameters.
+        """
+        if min_inlier_ratio <= 0:
+            raise ValueError("Minimum inlier ratio must be positive.")
+        if max_iterations <= 0:
+            raise ValueError("Maximum number of iterations must be positive.")
+        if distance_threshold <= 0:
+            raise ValueError("Distance threshold must be positive.")
+
+        result = ransac_circle_fitting(
+            edge_map=self._edge_image,
+            max_iterations=max_iterations,
+            distance_threshold=distance_threshold,
+            min_inlier_ratio=min_inlier_ratio,
+            min_radius=min_radius,
+            max_radius=max_radius
+        )
+
+        if result is None:
+            return None, self._edge_image
+
+        if erase:
+            self._remove_circle(result, distance_threshold)
+            self._edge_image = self._edge_image
+
+        return result, self._edge_image
+    
+    def _remove_circle(
+            self,
+            circle: tuple,
+            distance_threshold: float
+    ):
+        """Remove inliers of a given circle from the edge image.
+
+        Args:
+            circle: A tuple (x_center, y_center, radius) representing the circle parameters.
+            distance_threshold: Distance threshold to consider a point as an inlier.
+
+        Returns:
+            The edge image with inliers removed.
+        """
+        if circle is None or len(circle) != 3:
+            raise ValueError("Circle must be a tuple of (x_center, y_center, radius).")
+        x_center, y_center, radius = circle
+        if radius <= 0:
+            raise ValueError("Invalid circle parameters: radius must be positive.")
+        if distance_threshold <= 0:
+            raise ValueError("Distance threshold must be positive.")
+
+        yy, xx = np.nonzero(self._edge_image)
+        distances = np.sqrt((xx - x_center) ** 2 + (yy - y_center) ** 2)
+        inlier_mask = np.abs(distances - radius) <= distance_threshold
+        self._edge_image[yy[inlier_mask], xx[inlier_mask]] = False
