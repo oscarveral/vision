@@ -303,9 +303,6 @@ int32_t ransac_line_fitting(const bool* input, size_t width, size_t height,
                             uint32_t max_lsq_iterations, uint32_t min_inlier_count,
                             float* a, float* b, float* c);
 
-<<<<<<< HEAD
-#endif // DGST_FILTERS_H
-=======
 /**
  * @brief Fits a circle to edge points in a binary edge map using the RANSAC algorithm.
  *
@@ -345,4 +342,3 @@ int32_t ransac_circle_fitting(const bool* input, size_t width, size_t height,
                               float* center_x, float* center_y, float* radius);
                             
 #endif // DGST_FILTERS_H
->>>>>>> main

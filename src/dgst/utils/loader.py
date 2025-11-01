@@ -1,9 +1,10 @@
-from email.mime import image
+
 import os
+from typing import List, Optional
 import cv2
 import json
 import numpy as np
-
+import enum
 from dgst import DATA_ROOT
 import copy
 
@@ -116,19 +117,27 @@ class Calibration:
 
         return cloned
 
+class ImageFormat(enum.Enum):
+    BGR = 1
+    GRAYSCALE = 2
+    BOOLEAN = 3
 
-class Image:
-    def __init__(
-        self,
-        data: np.ndarray,
-        rois: list[RegionOfInterest],
-        calibration: Calibration = None,
-    ):
+class Image: 
+    def __init__(self, data: np.ndarray, rois: list[RegionOfInterest], calibration: Calibration = None, format: ImageFormat = ImageFormat.BGR):
         self.data = data
         self.rois = rois
         self.calibration = calibration
+        self.format = format
+        self.hsv_channels: Optional[List[np.ndarray]] = None
 
     def show_rois(self):
+
+        if self.data is None or self.rois is None:
+            return
+        
+        if self.format != ImageFormat.BGR and self.format != ImageFormat.GRAYSCALE:
+            raise ValueError("Image format must be BGR or GRAYSCALE to show ROIs.")
+
         img_copy = self.data.copy()
         for roi in self.rois:
             pts = np.array([roi.p1, roi.p2, roi.p3, roi.p4], np.int32)
@@ -153,16 +162,47 @@ class Image:
                 # fallback to deepcopy
                 data_copy = copy.deepcopy(self.data)
 
-        rois_copy = (
-            [r.clone() for r in self.rois] if self.rois is not None else []
-        )
-        calibration_copy = (
-            self.calibration.clone() if self.calibration is not None else None
-        )
-        return Image(
-            data=data_copy, rois=rois_copy, calibration=calibration_copy
-        )
+        rois_copy = [r.clone() for r in self.rois] if self.rois is not None else []
+        calibration_copy = self.calibration.clone() if self.calibration is not None else None
 
+        if self.hsv_channels is not None:
+            try:
+                hsv_copy = [np.copy(channel) for channel in self.hsv_channels]
+            except Exception:
+                hsv_copy = copy.deepcopy(self.hsv_channels)
+        else:
+            hsv_copy = None
+
+        res = Image(data=data_copy, rois=rois_copy, calibration=calibration_copy, format=self.format)
+        res.hsv_channels = hsv_copy
+
+        return res
+    
+    def get_hsv_channel(self, channel: str) -> np.ndarray:
+        """Get a specific HSV channel from the image.
+
+        Args:
+            channel (str): One of 'H', 'S', or 'V'.
+        Returns:
+            np.ndarray: The requested HSV channel.
+        """
+
+        if self.hsv_channels is None:
+            raise ValueError("HSV channels not computed. Please convert the image to HSV first.")
+        
+        channel = channel.upper()
+        if channel == 'H':
+            return self.hsv_channels[0]
+        elif channel == 'S':
+            return self.hsv_channels[1]
+        elif channel == 'V':
+            return self.hsv_channels[2]
+        else:
+            raise ValueError("Invalid channel specified. Use 'H', 'S', or 'V'.")
+
+    def get_image(self) -> np.ndarray:
+        """Get the image data as a numpy array."""
+        return self.data
 
 class DataLoader:
     def __init__(self, path=DATA_ROOT):

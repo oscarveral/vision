@@ -404,17 +404,6 @@ libfilter.ransac_line_fitting.argtypes = (
     ffi.c_uint32,
     ffi.POINTER(ffi.c_float),
     ffi.POINTER(ffi.c_float),
-<<<<<<< HEAD
-    ffi.POINTER(ffi.c_float)
-)
-
-def ransac_line_fitting(
-        edge_map: np.ndarray,
-        max_iterations: int,
-        max_lsq_iterations: int,
-        distance_threshold: float, 
-        min_inlier_count: int,
-=======
     ffi.POINTER(ffi.c_float),
 )
 
@@ -425,7 +414,6 @@ def ransac_line_fitting(
     max_lsq_iterations: int,
     distance_threshold: float,
     min_inlier_count: int,
->>>>>>> main
 ) -> tuple:
     """Fit a line to edge points using RANSAC via the C function.
 
@@ -461,12 +449,6 @@ def ransac_line_fitting(
         ffi.c_uint32(min_inlier_count),
         ffi.byref(a),
         ffi.byref(b),
-<<<<<<< HEAD
-        ffi.byref(c)
-    )
-    if -4 < result < 0:
-        print("RANSAC line fitting failed in C library with error code", result, file=sys.stderr)
-=======
         ffi.byref(c),
     )
     if -4 < result < 0:
@@ -475,14 +457,11 @@ def ransac_line_fitting(
             result,
             file=sys.stderr,
         )
->>>>>>> main
         return None
     elif result != 0:
         return None
 
     return (a.value, b.value, c.value)
-<<<<<<< HEAD
-=======
 
 
 # Function RANSAC circle fitting from the C library.
@@ -558,4 +537,3 @@ def ransac_circle_fitting(
         return None
 
     return (center_x.value, center_y.value, radius.value)
->>>>>>> main

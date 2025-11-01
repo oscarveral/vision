@@ -1,13 +1,13 @@
 import numpy as np
 
-from dgst.ffi.wrapper import ransac_line_fitting, ransac_circle_fitting
-
+from dgst.filters.ffi import ransac_line_fitting
+from dgst.utils.loader import Image, ImageFormat
 
 class FeatureExtractor:
     """Image features extractor."""
 
-    def __init__(self, edge_image: np.ndarray):
-        if edge_image.dtype != np.bool_:
+    def __init__(self, edge_image: Image):
+        if edge_image.format != ImageFormat.BOOLEAN:
             raise ValueError("Edge image must be of type bool.")
         if len(edge_image.shape) != 2:
             raise ValueError("Edge image must be a 2D array.")
@@ -45,7 +45,7 @@ class FeatureExtractor:
             raise ValueError("Distance threshold must be positive.")
 
         result = ransac_line_fitting(
-            edge_map=self._edge_image,
+            edge_map=self._edge_image.data,
             max_iterations=max_iterations,
             max_lsq_iterations=max_lsq_iterations,
             distance_threshold=distance_threshold,
@@ -57,9 +57,8 @@ class FeatureExtractor:
 
         if erase:
             self._remove_line(result, distance_threshold)
-            self._edge_image = self._edge_image
 
-        return result, self._edge_image
+        return result, self._edge_image.clone()
 
     def _remove_line(self, line: tuple, distance_threshold: float):
         """Remove inliers of a given line from the edge image.
@@ -83,10 +82,10 @@ class FeatureExtractor:
             raise ValueError("Distance threshold must be positive.")
 
         a, b, c = line
-        yy, xx = np.nonzero(self._edge_image)
-        distances = np.abs(a * xx + b * yy + c) / np.sqrt(a**2 + b**2)
+        yy, xx = np.nonzero(self._edge_image.data)
+        distances = np.abs(a * xx + b * yy + c) / np.sqrt(a ** 2 + b ** 2)
         inlier_mask = distances <= distance_threshold
-        self._edge_image[yy[inlier_mask], xx[inlier_mask]] = False
+        self._edge_image.data[yy[inlier_mask], xx[inlier_mask]] = False
 
     def windowed_ransac_line_fitting(
         self,
@@ -129,13 +128,9 @@ class FeatureExtractor:
 
         detected_lines = []
 
-        for y in range(0, self._edge_image.shape[0] - window_size + 1, step):
-            for x in range(
-                0, self._edge_image.shape[1] - window_size + 1, step
-            ):
-                window = self._edge_image[
-                    y : y + window_size, x : x + window_size
-                ]
+        for y in range(0, self._edge_image.data.shape[0] - window_size + 1, step):
+            for x in range(0, self._edge_image.data.shape[1] - window_size + 1, step):
+                window = self._edge_image.data[y:y + window_size, x:x + window_size]
                 feature_extractor = FeatureExtractor(edge_image=window.copy())
                 line, _ = feature_extractor.ransac_line_fitting(
                     max_iterations=max_iterations,
@@ -153,8 +148,8 @@ class FeatureExtractor:
                     if erase:
                         self._remove_line(adjusted_line, distance_threshold)
 
-        return detected_lines, self._edge_image
-
+        return detected_lines, self._edge_image.clone()
+    
     def get_line_support(
         self,
         line: tuple,
@@ -195,7 +190,7 @@ class FeatureExtractor:
         c_norm = c / norm
 
         # Mask the points that satisfy the line equation
-        yy, xx = np.nonzero(self._edge_image)
+        yy, xx = np.nonzero(self._edge_image.data)
         distances = a_norm * xx + b_norm * yy + c_norm
         inlier_mask = np.abs(distances) <= distance_threshold
 
@@ -264,7 +259,7 @@ class FeatureExtractor:
             if erase:
                 # Remove support points from edge image
                 for i in range(best_start_index, best_end_index + 1):
-                    self._edge_image[yy[i], xx[i]] = False
+                    self._edge_image.data[yy[i], xx[i]] = False
 
             if min_segment_length > 0.0:
                 length = np.sqrt(

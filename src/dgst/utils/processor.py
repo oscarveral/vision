@@ -3,22 +3,9 @@ import numpy as np
 from typing import List, Optional, Dict, Any
 from abc import ABC, abstractmethod
 
-from dgst.filters.ffi import (
-    box_filter,
-    gaussian_filter,
-    canny_edge_detection,
-    kannala_brandt_undistort,
-    kannala_brandt_map_points_to_undistorted,
-    phase_congruency as pc_ffi,
-    threshold_filter,
-)
-from dgst.filters.python import (
-    phase_congruency as pc_python,
-    otsu_threshold,
-    clahe_filter,
-)
-from dgst.utils.loader import Image, RegionOfInterest
-
+from dgst.filters.ffi import box_filter, gaussian_filter, canny_edge_detection, kannala_brandt_undistort, kannala_brandt_map_points_to_undistorted, phase_congruency as pc_ffi, threshold_filter
+from dgst.filters.python import phase_congruency as pc_python, otsu_threshold, clahe_filter, dilate_edges, scale_inter_area, median_blur, into_hsv_channels, add_channel_weight
+from dgst.utils.loader import Image, RegionOfInterest, ImageFormat
 
 class ProcessingTechnique:
     BOX_FILTER = "box_filter"
@@ -57,8 +44,13 @@ class GrayscaleStep(ProcessingStep):
     """Convert image to grayscale."""
 
     def process(self, image: Image) -> Image:
+
+        if image.format != ImageFormat.BGR:
+            raise ValueError("GrayscaleStep expects a BGR image")
+
         if len(image.data.shape) == 3:
             image.data = cv2.cvtColor(image.data, cv2.COLOR_BGR2GRAY)
+            image.format = ImageFormat.GRAYSCALE
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -74,6 +66,10 @@ class BoxFilterStep(ProcessingStep):
         self.filter_size = filter_size
 
     def process(self, image: Image) -> Image:
+
+        if image.format != ImageFormat.GRAYSCALE:
+            raise ValueError("BoxFilterStep expects a grayscale image")
+
         image.data = box_filter(image.data, self.filter_size)
         return image
 
@@ -86,14 +82,28 @@ class BoxFilterStep(ProcessingStep):
 
 class GaussianFilterStep(ProcessingStep):
     """Apply Gaussian filter using custom C implementation."""
-
-    def __init__(self, sigma: float = 1.0):
+    
+    def __init__(self, sigma: float = 1.0, on_hsv: bool = False):
         if sigma <= 0:
             raise ValueError("sigma must be positive")
         self.sigma = sigma
+        self.on_hsv = on_hsv
 
     def process(self, image: Image) -> Image:
-        image.data = gaussian_filter(image.data, self.sigma)
+
+        if self.on_hsv:
+            if image.hsv_channels is None:
+                raise ValueError("Image does not contain HSV channels for Gaussian filter on HSV")  
+            hsv_filtered = []
+            for channel in image.hsv_channels:
+                filtered = gaussian_filter(channel, self.sigma)
+                hsv_filtered.append(filtered)
+            image.hsv_channels = hsv_filtered
+        else:
+            if image.format != ImageFormat.GRAYSCALE:
+                raise ValueError("GaussianFilterStep expects a grayscale image")
+
+            image.data = gaussian_filter(image.data, self.sigma)
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -105,21 +115,32 @@ class GaussianFilterStep(ProcessingStep):
 
 class CannyEdgeDetectionStep(ProcessingStep):
     """Apply Canny edge detection using custom C implementation."""
-
-    def __init__(
-        self, low_threshold: float = 50.0, high_threshold: float = 150.0
-    ):
+    
+    def __init__(self, low_threshold: float = 50.0, high_threshold: float = 150.0, on_hsv: bool = False):
         if high_threshold < low_threshold:
             raise ValueError("high_threshold must be >= low_threshold")
         if low_threshold < 0:
             raise ValueError("low_threshold must be >= 0")
         self.low_threshold = low_threshold
         self.high_threshold = high_threshold
+        self.on_hsv = on_hsv
 
     def process(self, image: Image) -> Image:
-        image.data = canny_edge_detection(
-            image.data, self.low_threshold, self.high_threshold
-        )
+
+        if self.on_hsv:
+            if image.hsv_channels is None:
+                raise ValueError("Image does not contain HSV channels for Canny edge detection on HSV")  
+            hsv_edges = []
+            for channel in image.hsv_channels:
+                edges = canny_edge_detection(channel, self.low_threshold, self.high_threshold)
+                hsv_edges.append(edges)
+            image.hsv_channels = hsv_edges
+
+        else:
+            if image.format != ImageFormat.GRAYSCALE:
+                raise ValueError("CannyEdgeDetectionStep expects a grayscale image")
+            image.data = canny_edge_detection(image.data, self.low_threshold, self.high_threshold)
+
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -140,9 +161,11 @@ class KannalaBrandtUndistortionStep(ProcessingStep):
         if image.calibration is None:
             raise ValueError("Image does not contain calibration data")
         if image.calibration.camera_type != "kannala":
-            raise ValueError(
-                f"Expected 'kannala' camera type, got '{image.calibration.camera_type}'"
-            )
+            raise ValueError(f"Expected 'kannala' camera type, got '{image.calibration.camera_type}'")
+        
+
+        if image.format != ImageFormat.BGR:
+            raise ValueError("KannalaBrandtUndistortionStep expects a BGR image")
 
         # Extract intrinsic parameters (3x3 matrix from 3x4)
         K = image.calibration.intrinsics[:3, :3]
@@ -217,6 +240,9 @@ class PhaseCongruencyStep(ProcessingStep):
 
     def process(self, image: Image) -> Image:
 
+        if image.format != ImageFormat.GRAYSCALE:
+            raise ValueError("PhaseCongruencyStep expects a grayscale image")
+
         func = pc_ffi if self.use_own else pc_python
 
         image.data = func(
@@ -258,10 +284,8 @@ class ThresholdFilterStep(ProcessingStep):
 
     def process(self, image: Image) -> Image:
         # Ensure 2D
-        if image.data.ndim != 2:
-            raise ValueError(
-                "ThresholdFilterStep expects a 2D grayscale image"
-            )
+        if image.format != ImageFormat.GRAYSCALE:
+            raise ValueError("ThresholdFilterStep expects a grayscale image")
 
         # Enforce strict 2D uint8 input as required by the C-backed threshold filter.
         if image.data.dtype != np.uint8:
@@ -299,11 +323,11 @@ class CLAHEStep(ProcessingStep):
     def process(self, image: Image) -> Image:
         if image.data is None:
             raise ValueError("Image.data is None")
-        image.data = clahe_filter(
-            image.data,
-            clip_limit=self.clip_limit,
-            tile_grid_size=self.tile_grid_size,
-        )
+        
+        if image.format != ImageFormat.BGR and image.format != ImageFormat.GRAYSCALE:
+            raise ValueError("CLAHEStep expects a BGR or GRAYSCALE image")
+
+        image.data = clahe_filter(image.data, clip_limit=self.clip_limit, tile_grid_size=self.tile_grid_size)
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -323,15 +347,149 @@ class OtsuThresholdStep(ProcessingStep):
     def process(self, image: Image) -> Image:
         if image.data is None:
             raise ValueError("Image.data is None")
-        if image.data.ndim != 2:
-            raise ValueError("OtsuThresholdStep expects a 2D grayscale image")
+        if image.format != ImageFormat.GRAYSCALE:
+            raise ValueError("OtsuThresholdStep expects a grayscale image")
 
         image.data = otsu_threshold(image.data)
         return image
 
     def get_params(self) -> Dict[str, Any]:
         return {"technique": ProcessingTechnique.OTSU_THRESHOLD}
+    
+class DilateEdgesStep(ProcessingStep):
+    """Dilate edges in a binary edge image."""
+    
+    def __init__(self, kernel_size: int = 3, iterations: int = 1, on_hsv: bool = False):
+        if kernel_size % 2 == 0:
+            raise ValueError("kernel_size must be odd")
+        if iterations < 1:
+            raise ValueError("iterations must be >= 1")
+        self.kernel_size = kernel_size
+        self.iterations = iterations
+        self.on_hsv = on_hsv
 
+    def process(self, image: Image) -> Image:
+
+        if self.on_hsv:
+            if image.hsv_channels is None:
+                raise ValueError("Image does not contain HSV channels for DilateEdgesStep on HSV")  
+            hsv_dilated = []
+            for channel in image.hsv_channels:
+                dilated = dilate_edges(channel, self.kernel_size, self.iterations)
+                hsv_dilated.append(dilated)
+            image.hsv_channels = hsv_dilated
+        else:
+            if image.format != ImageFormat.GRAYSCALE:
+                raise ValueError("DilateEdgesStep expects a grayscale image")
+
+            image.data = dilate_edges(image.data, self.kernel_size, self.iterations)
+
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": "dilate_edges",
+            "kernel_size": self.kernel_size,
+            "iterations": self.iterations
+        }
+    
+class ScaleInterAreaStep(ProcessingStep):
+    """Scale image using area interpolation."""
+    
+    def __init__(self, scale_factor: float):
+        if scale_factor <= 0:
+            raise ValueError("scale_factor must be positive")
+        self.scale_factor = scale_factor
+
+    def process(self, image: Image) -> Image:
+        if image.data is None:
+            raise ValueError("Image.data is None")
+
+        image.data = scale_inter_area(image.data, self.scale_factor)
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": "scale_inter_area",
+            "scale_factor": self.scale_factor
+        }
+
+class MedianBlurStep(ProcessingStep):
+    """Apply median blur to an image."""
+    
+    def __init__(self, kernel_size: int):
+        if kernel_size % 2 == 0 or kernel_size <= 1:
+            raise ValueError("kernel_size must be an odd number greater than 1")
+        self.kernel_size = kernel_size
+
+    def process(self, image: Image) -> Image:
+        if image.data is None:
+            raise ValueError("Image.data is None")
+
+        image.data = median_blur(image.data, self.kernel_size)
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": "median_blur",
+            "kernel_size": self.kernel_size
+        }
+    
+class IntoHSVChannelsStep(ProcessingStep):
+    """Convert BGR image into its HSV channels."""
+    
+    def __init__(self):
+        pass
+
+    def process(self, image: Image) -> Image:
+        if image.data is None:
+            raise ValueError("Image.data is None")
+        if image.format != ImageFormat.BGR:
+            raise ValueError("IntoHSVChannelsStep expects a BGR image")
+
+        hsv_channels = into_hsv_channels(image.data)
+        image.hsv_channels = [hsv_channels[:, :, 0], hsv_channels[:, :, 1], hsv_channels[:, :, 2]]
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": "into_hsv_channels",
+        }
+    
+class CombineChannelsStep(ProcessingStep):
+    """Combine two channels with a specified weight for the second channel."""
+
+    def __init__(self, channel1: str, channel2: str, weight: float):
+        if not (0.0 <= weight <= 1.0):
+            raise ValueError("weight must be between 0 and 1")
+        
+        if channel1 not in ['H', 'S', 'V'] or channel2 not in ['H', 'S', 'V']:
+            raise ValueError("channel1 and channel2 must be one of 'H', 'S', or 'V'")
+        
+        self.channel1 = channel1
+        self.channel2 = channel2
+        self.weight = weight
+
+    def process(self, image: Image) -> Image:
+        if image.hsv_channels is None:
+            raise ValueError("Image does not contain enough HSV channels for CombineChannelsStep")
+
+        ch1_idx = {'H': 0, 'S': 1, 'V': 2}[self.channel1]
+        ch2_idx = {'H': 0, 'S': 1, 'V': 2}[self.channel2]
+
+        ch1 = image.hsv_channels[ch1_idx]
+        ch2 = image.hsv_channels[ch2_idx]
+
+        combined_channel = add_channel_weight(ch1, ch2, self.weight)
+        image.data = combined_channel
+        image.format = ImageFormat.GRAYSCALE  
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": "combine_channels",
+            "weight": self.weight
+        }
 
 class ImageProcessor:
     """Flexible image processor for chaining filters and edge detection.
@@ -387,7 +545,7 @@ class ImageProcessor:
         """
         return self.add_step(BoxFilterStep(filter_size))
 
-    def add_gaussian_filter(self, sigma: float = 1.0) -> "ImageProcessor":
+    def add_gaussian_filter(self, sigma: float = 1.0, on_hsv: bool = False) -> 'ImageProcessor':
         """Add Gaussian filter step.
 
         Args:
@@ -396,11 +554,10 @@ class ImageProcessor:
         Returns:
             Self for method chaining
         """
-        return self.add_step(GaussianFilterStep(sigma))
-
-    def add_canny_edge_detection(
-        self, low_threshold: float = 50.0, high_threshold: float = 150.0
-    ) -> "ImageProcessor":
+        return self.add_step(GaussianFilterStep(sigma, on_hsv))
+    
+    def add_canny_edge_detection(self, low_threshold: float = 50.0, 
+                                  high_threshold: float = 150.0, on_hsv: bool = False) -> 'ImageProcessor':
         """Add Canny edge detection step.
 
         Note: For best results, apply Gaussian smoothing before Canny edge detection.
@@ -408,15 +565,13 @@ class ImageProcessor:
         Args:
             low_threshold: Lower threshold for hysteresis (weak edges)
             high_threshold: Upper threshold for hysteresis (strong edges)
-
+            on_hsv: If True, the Canny edge detection will be applied on the HSV channels
         Returns:
             Self for method chaining
         """
-        return self.add_step(
-            CannyEdgeDetectionStep(low_threshold, high_threshold)
-        )
-
-    def add_kannala_brandt_undistortion(self) -> "ImageProcessor":
+        return self.add_step(CannyEdgeDetectionStep(low_threshold, high_threshold, on_hsv))
+    
+    def add_kannala_brandt_undistortion(self) -> 'ImageProcessor':
         """Add Kannala-Brandt undistortion step.
 
         The calibration data will be taken from the image being processed.
@@ -491,7 +646,63 @@ class ImageProcessor:
         """
         return self.add_step(OtsuThresholdStep())
 
-    def process(self, image: Image, keep_intermediate: bool = False) -> Image:
+    def add_dilate_edges(self, kernel_size: int = 3, iterations: int = 1, on_hsv: bool = False) -> 'ImageProcessor':
+        """Add edge dilation step.
+
+        Args:
+            kernel_size: Size of the structuring element (must be odd)
+            iterations: Number of dilation iterations
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(DilateEdgesStep(kernel_size=kernel_size, iterations=iterations, on_hsv=on_hsv))
+
+    def add_scale_inter_area(self, scale_factor: float) -> 'ImageProcessor':
+        """Add image scaling step using area interpolation.
+
+        Args:
+            scale_factor: Factor to scale the image by (e.g., 0.5 reduces size by half)
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(ScaleInterAreaStep(scale_factor=scale_factor))
+
+    def add_median_blur(self, kernel_size: int) -> 'ImageProcessor':
+        """Add median blur step.
+
+        Args:
+            kernel_size: Size of the median filter kernel (must be odd and > 1)
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(MedianBlurStep(kernel_size=kernel_size))
+
+    def add_into_hsv_channels(self) -> 'ImageProcessor':
+        """Add step to convert BGR image into its HSV channels.
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(IntoHSVChannelsStep())
+
+    def add_channel_weight(self, channel1: str, channel2: str, weight: float) -> "ImageProcessor":
+        """Add step to combine two channels with a specified weight for the second channel.
+
+        Args:
+            channel1: First channel to combine ('H', 'S', or 'V')
+            channel2: Second channel to combine ('H', 'S', or 'V')
+            weight: Weight to apply to the second channel (between 0 and 1)
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(CombineChannelsStep(channel1, channel2, weight))
+
+    def process(self, image: Image, 
+                keep_intermediate: bool = False) -> Image:
         """Process image through all steps in the pipeline.
 
         Args:
