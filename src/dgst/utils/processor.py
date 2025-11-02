@@ -4,8 +4,9 @@ from typing import List, Optional, Dict, Any
 from abc import ABC, abstractmethod
 
 from dgst.filters.ffi import box_filter, gaussian_filter, canny_edge_detection, kannala_brandt_undistort, kannala_brandt_map_points_to_undistorted, phase_congruency as pc_ffi, threshold_filter
-from dgst.filters.python import phase_congruency as pc_python, otsu_threshold, clahe_filter, dilate_edges, scale_inter_area, median_blur, into_hsv_channels, add_channel_weight
+from dgst.filters.python import phase_congruency as pc_python, otsu_threshold, clahe_filter, dilate_edges, scale_inter_area, median_blur, into_hsv_channels, add_channel_weight, filtro_rojo_azul, filter_connected_components
 from dgst.utils.loader import Image, RegionOfInterest, ImageFormat
+from dgst.utils.validation import ImageValidator, FormatConverter, ValidationError
 
 class ProcessingTechnique:
     BOX_FILTER = "box_filter"
@@ -44,13 +45,26 @@ class GrayscaleStep(ProcessingStep):
     """Convert image to grayscale."""
 
     def process(self, image: Image) -> Image:
+        # Precondition validation
+        ImageValidator.validate_format(image, ImageFormat.BGR, "GrayscaleStep")
+        ImageValidator.validate_bgr_image(image, "GrayscaleStep")
 
-        if image.format != ImageFormat.BGR:
-            raise ValueError("GrayscaleStep expects a BGR image")
-
+        # Processing
         if len(image.data.shape) == 3:
             image.data = cv2.cvtColor(image.data, cv2.COLOR_BGR2GRAY)
             image.format = ImageFormat.GRAYSCALE
+        
+        # Post-processing validation
+        ImageValidator.validate_data_dimensions(image, 2, "GrayscaleStep")
+        ImageValidator.validate_data_type(image, np.uint8, "GrayscaleStep")
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": ProcessingTechnique.GRAYSCALE,
+            "output_shape": image.data.shape,
+            "output_format": image.format.name
+        })
+        
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -66,11 +80,26 @@ class BoxFilterStep(ProcessingStep):
         self.filter_size = filter_size
 
     def process(self, image: Image) -> Image:
+        # Precondition validation
+        ImageValidator.validate_grayscale_image(image, "BoxFilterStep")
+        
+        # Ensure data is contiguous for C function
+        image.data = FormatConverter.ensure_contiguous(image.data)
 
-        if image.format != ImageFormat.GRAYSCALE:
-            raise ValueError("BoxFilterStep expects a grayscale image")
-
+        # Processing
         image.data = box_filter(image.data, self.filter_size)
+        
+        # Post-processing validation
+        ImageValidator.validate_data_dimensions(image, 2, "BoxFilterStep")
+        ImageValidator.validate_data_type(image, np.uint8, "BoxFilterStep")
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": ProcessingTechnique.BOX_FILTER,
+            "filter_size": self.filter_size,
+            "output_shape": image.data.shape
+        })
+        
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -90,20 +119,58 @@ class GaussianFilterStep(ProcessingStep):
         self.on_hsv = on_hsv
 
     def process(self, image: Image) -> Image:
-
         if self.on_hsv:
-            if image.hsv_channels is None:
-                raise ValueError("Image does not contain HSV channels for Gaussian filter on HSV")  
+            # Precondition validation for HSV mode
+            ImageValidator.validate_hsv_channels(image, "GaussianFilterStep", expected_channels=3)
+            
             hsv_filtered = []
-            for channel in image.hsv_channels:
+            for idx, channel in enumerate(image.hsv_channels):
+                # Validate each channel
+                if channel.dtype != np.uint8:
+                    raise ValidationError(
+                        f"GaussianFilterStep: HSV channel {idx} must be uint8, got {channel.dtype}"
+                    )
+                if channel.ndim != 2:
+                    raise ValidationError(
+                        f"GaussianFilterStep: HSV channel {idx} must be 2D, got {channel.ndim}D"
+                    )
+                
+                # Ensure contiguous
+                channel = FormatConverter.ensure_contiguous(channel)
                 filtered = gaussian_filter(channel, self.sigma)
                 hsv_filtered.append(filtered)
+            
             image.hsv_channels = hsv_filtered
+            
+            # Update metadata
+            image.metadata.add_step({
+                "technique": ProcessingTechnique.GAUSSIAN_FILTER,
+                "sigma": self.sigma,
+                "on_hsv": True,
+                "channels_processed": len(hsv_filtered)
+            })
         else:
-            if image.format != ImageFormat.GRAYSCALE:
-                raise ValueError("GaussianFilterStep expects a grayscale image")
+            # Precondition validation for grayscale mode
+            ImageValidator.validate_grayscale_image(image, "GaussianFilterStep")
+            
+            # Ensure data is contiguous for C function
+            image.data = FormatConverter.ensure_contiguous(image.data)
 
+            # Processing
             image.data = gaussian_filter(image.data, self.sigma)
+            
+            # Post-processing validation
+            ImageValidator.validate_data_dimensions(image, 2, "GaussianFilterStep")
+            ImageValidator.validate_data_type(image, np.uint8, "GaussianFilterStep")
+            
+            # Update metadata
+            image.metadata.add_step({
+                "technique": ProcessingTechnique.GAUSSIAN_FILTER,
+                "sigma": self.sigma,
+                "on_hsv": False,
+                "output_shape": image.data.shape
+            })
+        
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -126,20 +193,59 @@ class CannyEdgeDetectionStep(ProcessingStep):
         self.on_hsv = on_hsv
 
     def process(self, image: Image) -> Image:
-
         if self.on_hsv:
-            if image.hsv_channels is None:
-                raise ValueError("Image does not contain HSV channels for Canny edge detection on HSV")  
+            # Precondition validation for HSV mode
+            ImageValidator.validate_hsv_channels(image, "CannyEdgeDetectionStep", expected_channels=3)
+            
             hsv_edges = []
-            for channel in image.hsv_channels:
+            for idx, channel in enumerate(image.hsv_channels):
+                # Validate each channel
+                if channel.dtype != np.uint8:
+                    raise ValidationError(
+                        f"CannyEdgeDetectionStep: HSV channel {idx} must be uint8, got {channel.dtype}"
+                    )
+                if channel.ndim != 2:
+                    raise ValidationError(
+                        f"CannyEdgeDetectionStep: HSV channel {idx} must be 2D, got {channel.ndim}D"
+                    )
+                
+                # Ensure contiguous
+                channel = FormatConverter.ensure_contiguous(channel)
                 edges = canny_edge_detection(channel, self.low_threshold, self.high_threshold)
                 hsv_edges.append(edges)
+            
             image.hsv_channels = hsv_edges
-
+            
+            # Update metadata
+            image.metadata.add_step({
+                "technique": ProcessingTechnique.CANNY_EDGE_DETECTION,
+                "low_threshold": self.low_threshold,
+                "high_threshold": self.high_threshold,
+                "on_hsv": True,
+                "channels_processed": len(hsv_edges)
+            })
         else:
-            if image.format != ImageFormat.GRAYSCALE:
-                raise ValueError("CannyEdgeDetectionStep expects a grayscale image")
+            # Precondition validation for grayscale mode
+            ImageValidator.validate_grayscale_image(image, "CannyEdgeDetectionStep")
+            
+            # Ensure data is contiguous for C function
+            image.data = FormatConverter.ensure_contiguous(image.data)
+            
+            # Processing
             image.data = canny_edge_detection(image.data, self.low_threshold, self.high_threshold)
+            
+            # Post-processing validation
+            ImageValidator.validate_data_dimensions(image, 2, "CannyEdgeDetectionStep")
+            ImageValidator.validate_data_type(image, np.uint8, "CannyEdgeDetectionStep")
+            
+            # Update metadata
+            image.metadata.add_step({
+                "technique": ProcessingTechnique.CANNY_EDGE_DETECTION,
+                "low_threshold": self.low_threshold,
+                "high_threshold": self.high_threshold,
+                "on_hsv": False,
+                "output_shape": image.data.shape
+            })
 
         return image
 
@@ -158,23 +264,44 @@ class KannalaBrandtUndistortionStep(ProcessingStep):
         pass
 
     def process(self, image: Image) -> Image:
-        if image.calibration is None:
-            raise ValueError("Image does not contain calibration data")
-        if image.calibration.camera_type != "kannala":
-            raise ValueError(f"Expected 'kannala' camera type, got '{image.calibration.camera_type}'")
+        # Precondition validation
+        ImageValidator.validate_calibration(image, "KannalaBrandtUndistortionStep")
+        ImageValidator.validate_calibration_type(image, "kannala", "KannalaBrandtUndistortionStep")
+        ImageValidator.validate_bgr_image(image, "KannalaBrandtUndistortionStep")
         
-
-        if image.format != ImageFormat.BGR:
-            raise ValueError("KannalaBrandtUndistortionStep expects a BGR image")
-
+        # Validate intrinsics and distortion parameters
+        if image.calibration.intrinsics is None:
+            raise ValidationError("KannalaBrandtUndistortionStep: Calibration missing intrinsics")
+        if image.calibration.distortion is None:
+            raise ValidationError("KannalaBrandtUndistortionStep: Calibration missing distortion")
+        
         # Extract intrinsic parameters (3x3 matrix from 3x4)
         K = image.calibration.intrinsics[:3, :3]
+        if K.shape != (3, 3):
+            raise ValidationError(
+                f"KannalaBrandtUndistortionStep: Expected 3x3 intrinsics matrix, got {K.shape}"
+            )
 
         # Extract distortion coefficients (first 4)
         D = np.array(image.calibration.distortion[:4], dtype=np.float32)
+        if len(D) != 4:
+            raise ValidationError(
+                f"KannalaBrandtUndistortionStep: Expected 4 distortion coefficients, got {len(D)}"
+            )
+        
+        # Ensure data is contiguous
+        image.data = FormatConverter.ensure_contiguous(image.data)
 
         # Apply the undistortion using C implementation
+        original_shape = image.data.shape
         image.data = kannala_brandt_undistort(image.data, K, D)
+        
+        # Post-processing validation
+        ImageValidator.validate_bgr_image(image, "KannalaBrandtUndistortionStep")
+        if image.data.shape != original_shape:
+            raise ValidationError(
+                f"KannalaBrandtUndistortionStep: Shape changed unexpectedly from {original_shape} to {image.data.shape}"
+            )
 
         # Remap ROI coordinates (if any) from distorted -> undistorted pixel coordinates
         if image.rois:
@@ -200,17 +327,21 @@ class KannalaBrandtUndistortionStep(ProcessingStep):
                 new_rois.append(RegionOfInterest(p1=p1, p2=p2, p3=p3, p4=p4))
 
             image.rois = new_rois
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": ProcessingTechnique.KANNALA_BRANDT_UNDISTORTION,
+            "camera_type": image.calibration.camera_type,
+            "rois_remapped": len(image.rois) if image.rois else 0,
+            "output_shape": image.data.shape
+        })
 
         return image
 
     def get_params(self) -> Dict[str, Any]:
-        params = {
+        return {
             "technique": ProcessingTechnique.KANNALA_BRANDT_UNDISTORTION,
         }
-        if self._calibration is not None:
-            params["camera_type"] = self._calibration.camera_type
-            params["distortion_coeffs"] = self._calibration.distortion
-        return params
 
 
 class PhaseCongruencyStep(ProcessingStep):
@@ -239,13 +370,16 @@ class PhaseCongruencyStep(ProcessingStep):
         self.use_own = use_own
 
     def process(self, image: Image) -> Image:
-
-        if image.format != ImageFormat.GRAYSCALE:
-            raise ValueError("PhaseCongruencyStep expects a grayscale image")
+        # Precondition validation
+        ImageValidator.validate_grayscale_image(image, "PhaseCongruencyStep")
+        
+        # Ensure data is contiguous
+        image.data = FormatConverter.ensure_contiguous(image.data)
 
         func = pc_ffi if self.use_own else pc_python
 
-        image.data = func(
+        # Processing
+        result = func(
             image.data,
             nscale=self.nscale,
             norient=self.norient,
@@ -254,6 +388,34 @@ class PhaseCongruencyStep(ProcessingStep):
             sigma_onf=self.sigma_onf,
             eps=self.eps,
         )
+        
+        # Validate output
+        if result is None:
+            raise ValidationError("PhaseCongruencyStep: Output is None")
+        if not isinstance(result, np.ndarray):
+            raise ValidationError(
+                f"PhaseCongruencyStep: Expected numpy array output, got {type(result)}"
+            )
+        
+        image.data = result
+        
+        # Post-processing validation
+        ImageValidator.validate_data_not_none(image, "PhaseCongruencyStep")
+        ImageValidator.validate_data_dimensions(image, 2, "PhaseCongruencyStep")
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": ProcessingTechnique.PHASE_CONGRUENCY,
+            "nscale": self.nscale,
+            "norient": self.norient,
+            "min_wavelength": self.min_wavelength,
+            "mult": self.mult,
+            "sigma_onf": self.sigma_onf,
+            "eps": self.eps,
+            "use_own": self.use_own,
+            "output_shape": image.data.shape,
+            "output_dtype": str(image.data.dtype)
+        })
 
         return image
 
@@ -283,21 +445,38 @@ class ThresholdFilterStep(ProcessingStep):
         self.threshold = float(threshold)
 
     def process(self, image: Image) -> Image:
-        # Ensure 2D
-        if image.format != ImageFormat.GRAYSCALE:
-            raise ValueError("ThresholdFilterStep expects a grayscale image")
-
-        # Enforce strict 2D uint8 input as required by the C-backed threshold filter.
-        if image.data.dtype != np.uint8:
-            raise ValueError(
-                "ThresholdFilterStep expects image.data to be dtype=uint8"
-            )
+        # Precondition validation
+        ImageValidator.validate_grayscale_image(image, "ThresholdFilterStep")
+        
+        # Ensure data is contiguous for C function
+        image.data = FormatConverter.ensure_contiguous(image.data)
 
         # Call the C-backed threshold_filter which expects uint8 input and returns uint8 0/255
         result = threshold_filter(image.data, self.threshold)
+        
+        # Post-processing validation
+        if result is None:
+            raise ValidationError("ThresholdFilterStep: Output is None")
+        if not isinstance(result, np.ndarray):
+            raise ValidationError(
+                f"ThresholdFilterStep: Expected numpy array output, got {type(result)}"
+            )
+        if result.ndim != 2:
+            raise ValidationError(
+                f"ThresholdFilterStep: Expected 2D output, got {result.ndim}D"
+            )
 
         # Store result (uint8) back into image.data
         image.data = result
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": ProcessingTechnique.THRESHOLD_FILTER,
+            "threshold": self.threshold,
+            "output_shape": image.data.shape,
+            "output_dtype": str(image.data.dtype)
+        })
+        
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -321,13 +500,52 @@ class CLAHEStep(ProcessingStep):
         self.tile_grid_size = (int(tile_grid_size[0]), int(tile_grid_size[1]))
 
     def process(self, image: Image) -> Image:
-        if image.data is None:
-            raise ValueError("Image.data is None")
+        # Precondition validation
+        ImageValidator.validate_data_not_none(image, "CLAHEStep")
+        ImageValidator.validate_multiple_formats(
+            image, [ImageFormat.BGR, ImageFormat.GRAYSCALE], "CLAHEStep"
+        )
         
-        if image.format != ImageFormat.BGR and image.format != ImageFormat.GRAYSCALE:
-            raise ValueError("CLAHEStep expects a BGR or GRAYSCALE image")
+        # Validate dimensions based on format
+        if image.format == ImageFormat.BGR:
+            ImageValidator.validate_bgr_image(image, "CLAHEStep")
+        else:
+            ImageValidator.validate_grayscale_image(image, "CLAHEStep")
+        
+        # Ensure data is contiguous
+        image.data = FormatConverter.ensure_contiguous(image.data)
 
-        image.data = clahe_filter(image.data, clip_limit=self.clip_limit, tile_grid_size=self.tile_grid_size)
+        # Processing
+        original_format = image.format
+        result = clahe_filter(image.data, clip_limit=self.clip_limit, tile_grid_size=self.tile_grid_size)
+        
+        # Post-processing validation
+        if result is None:
+            raise ValidationError("CLAHEStep: Output is None")
+        if not isinstance(result, np.ndarray):
+            raise ValidationError(
+                f"CLAHEStep: Expected numpy array output, got {type(result)}"
+            )
+        if result.shape != image.data.shape:
+            raise ValidationError(
+                f"CLAHEStep: Output shape {result.shape} doesn't match input shape {image.data.shape}"
+            )
+        if result.dtype != np.uint8:
+            raise ValidationError(
+                f"CLAHEStep: Expected uint8 output, got {result.dtype}"
+            )
+        
+        image.data = result
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": ProcessingTechnique.CLAHE,
+            "clip_limit": self.clip_limit,
+            "tile_grid_size": self.tile_grid_size,
+            "input_format": original_format.name,
+            "output_shape": image.data.shape
+        })
+        
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -345,12 +563,39 @@ class OtsuThresholdStep(ProcessingStep):
         pass
 
     def process(self, image: Image) -> Image:
-        if image.data is None:
-            raise ValueError("Image.data is None")
-        if image.format != ImageFormat.GRAYSCALE:
-            raise ValueError("OtsuThresholdStep expects a grayscale image")
+        # Precondition validation
+        ImageValidator.validate_grayscale_image(image, "OtsuThresholdStep")
+        
+        # Ensure data is contiguous
+        image.data = FormatConverter.ensure_contiguous(image.data)
 
-        image.data = otsu_threshold(image.data)
+        # Processing
+        result = otsu_threshold(image.data)
+        
+        # Post-processing validation
+        if result is None:
+            raise ValidationError("OtsuThresholdStep: Output is None")
+        if not isinstance(result, np.ndarray):
+            raise ValidationError(
+                f"OtsuThresholdStep: Expected numpy array output, got {type(result)}"
+            )
+        if result.ndim != 2:
+            raise ValidationError(
+                f"OtsuThresholdStep: Expected 2D output, got {result.ndim}D"
+            )
+        if result.dtype != np.uint8:
+            raise ValidationError(
+                f"OtsuThresholdStep: Expected uint8 output, got {result.dtype}"
+            )
+        
+        image.data = result
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": ProcessingTechnique.OTSU_THRESHOLD,
+            "output_shape": image.data.shape
+        })
+        
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -369,20 +614,64 @@ class DilateEdgesStep(ProcessingStep):
         self.on_hsv = on_hsv
 
     def process(self, image: Image) -> Image:
-
         if self.on_hsv:
-            if image.hsv_channels is None:
-                raise ValueError("Image does not contain HSV channels for DilateEdgesStep on HSV")  
+            # Precondition validation for HSV mode
+            ImageValidator.validate_hsv_channels(image, "DilateEdgesStep", expected_channels=3)
+            
             hsv_dilated = []
-            for channel in image.hsv_channels:
+            for idx, channel in enumerate(image.hsv_channels):
+                # Validate each channel
+                if channel.ndim != 2:
+                    raise ValidationError(
+                        f"DilateEdgesStep: HSV channel {idx} must be 2D, got {channel.ndim}D"
+                    )
+                
+                # Ensure contiguous
+                channel = FormatConverter.ensure_contiguous(channel)
                 dilated = dilate_edges(channel, self.kernel_size, self.iterations)
                 hsv_dilated.append(dilated)
+            
             image.hsv_channels = hsv_dilated
+            
+            # Update metadata
+            image.metadata.add_step({
+                "technique": "dilate_edges",
+                "kernel_size": self.kernel_size,
+                "iterations": self.iterations,
+                "on_hsv": True,
+                "channels_processed": len(hsv_dilated)
+            })
         else:
-            if image.format != ImageFormat.GRAYSCALE:
-                raise ValueError("DilateEdgesStep expects a grayscale image")
+            # Precondition validation for grayscale mode
+            ImageValidator.validate_data_not_none(image, "DilateEdgesStep")
+            ImageValidator.validate_format(image, ImageFormat.GRAYSCALE, "DilateEdgesStep")
+            ImageValidator.validate_data_dimensions(image, 2, "DilateEdgesStep")
+            
+            # Ensure contiguous
+            image.data = FormatConverter.ensure_contiguous(image.data)
 
-            image.data = dilate_edges(image.data, self.kernel_size, self.iterations)
+            # Processing
+            result = dilate_edges(image.data, self.kernel_size, self.iterations)
+            
+            # Post-processing validation
+            if result is None:
+                raise ValidationError("DilateEdgesStep: Output is None")
+            if result.ndim != 2:
+                raise ValidationError(
+                    f"DilateEdgesStep: Expected 2D output, got {result.ndim}D"
+                )
+            
+            image.data = np.where(result > 0, 255, 0).astype(np.uint8)
+            image.format = ImageFormat.GRAYSCALE
+            
+            # Update metadata
+            image.metadata.add_step({
+                "technique": "dilate_edges",
+                "kernel_size": self.kernel_size,
+                "iterations": self.iterations,
+                "on_hsv": False,
+                "output_shape": image.data.shape
+            })
 
         return image
 
@@ -402,10 +691,45 @@ class ScaleInterAreaStep(ProcessingStep):
         self.scale_factor = scale_factor
 
     def process(self, image: Image) -> Image:
-        if image.data is None:
-            raise ValueError("Image.data is None")
+        # Precondition validation
+        ImageValidator.validate_data_not_none(image, "ScaleInterAreaStep")
+        
+        original_shape = image.data.shape
+        
+        # Ensure data is contiguous
+        image.data = FormatConverter.ensure_contiguous(image.data)
 
-        image.data = scale_inter_area(image.data, self.scale_factor)
+        # Processing
+        result = scale_inter_area(image.data, self.scale_factor)
+        
+        # Post-processing validation
+        if result is None:
+            raise ValidationError("ScaleInterAreaStep: Output is None")
+        if not isinstance(result, np.ndarray):
+            raise ValidationError(
+                f"ScaleInterAreaStep: Expected numpy array output, got {type(result)}"
+            )
+        
+        # Validate output shape is scaled correctly
+        expected_height = int(original_shape[0] * self.scale_factor)
+        expected_width = int(original_shape[1] * self.scale_factor)
+        
+        if result.shape[0] != expected_height or result.shape[1] != expected_width:
+            raise ValidationError(
+                f"ScaleInterAreaStep: Expected output shape approximately "
+                f"({expected_height}, {expected_width}), got {result.shape[:2]}"
+            )
+        
+        image.data = result
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": "scale_inter_area",
+            "scale_factor": self.scale_factor,
+            "original_shape": original_shape,
+            "output_shape": image.data.shape
+        })
+        
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -423,10 +747,43 @@ class MedianBlurStep(ProcessingStep):
         self.kernel_size = kernel_size
 
     def process(self, image: Image) -> Image:
-        if image.data is None:
-            raise ValueError("Image.data is None")
+        # Precondition validation
+        ImageValidator.validate_data_not_none(image, "MedianBlurStep")
+        
+        original_shape = image.data.shape
+        original_dtype = image.data.dtype
+        
+        # Ensure data is contiguous
+        image.data = FormatConverter.ensure_contiguous(image.data)
 
-        image.data = median_blur(image.data, self.kernel_size)
+        # Processing
+        result = median_blur(image.data, self.kernel_size)
+        
+        # Post-processing validation
+        if result is None:
+            raise ValidationError("MedianBlurStep: Output is None")
+        if not isinstance(result, np.ndarray):
+            raise ValidationError(
+                f"MedianBlurStep: Expected numpy array output, got {type(result)}"
+            )
+        if result.shape != original_shape:
+            raise ValidationError(
+                f"MedianBlurStep: Output shape {result.shape} doesn't match input shape {original_shape}"
+            )
+        if result.dtype != original_dtype:
+            raise ValidationError(
+                f"MedianBlurStep: Output dtype {result.dtype} doesn't match input dtype {original_dtype}"
+            )
+        
+        image.data = result
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": "median_blur",
+            "kernel_size": self.kernel_size,
+            "output_shape": image.data.shape
+        })
+        
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -442,13 +799,52 @@ class IntoHSVChannelsStep(ProcessingStep):
         pass
 
     def process(self, image: Image) -> Image:
-        if image.data is None:
-            raise ValueError("Image.data is None")
-        if image.format != ImageFormat.BGR:
-            raise ValueError("IntoHSVChannelsStep expects a BGR image")
+        # Precondition validation
+        ImageValidator.validate_bgr_image(image, "IntoHSVChannelsStep")
+        
+        # Ensure data is contiguous
+        image.data = FormatConverter.ensure_contiguous(image.data)
 
+        # Processing
         hsv_channels = into_hsv_channels(image.data)
+        
+        # Post-processing validation
+        if hsv_channels is None:
+            raise ValidationError("IntoHSVChannelsStep: Output is None")
+        if not isinstance(hsv_channels, np.ndarray):
+            raise ValidationError(
+                f"IntoHSVChannelsStep: Expected numpy array output, got {type(hsv_channels)}"
+            )
+        if hsv_channels.ndim != 3:
+            raise ValidationError(
+                f"IntoHSVChannelsStep: Expected 3D array, got {hsv_channels.ndim}D"
+            )
+        if hsv_channels.shape[2] != 3:
+            raise ValidationError(
+                f"IntoHSVChannelsStep: Expected 3 channels, got {hsv_channels.shape[2]}"
+            )
+        
+        # Split into individual channel arrays
         image.hsv_channels = [hsv_channels[:, :, 0], hsv_channels[:, :, 1], hsv_channels[:, :, 2]]
+        
+        # Validate individual channels
+        for idx, channel in enumerate(image.hsv_channels):
+            if channel.ndim != 2:
+                raise ValidationError(
+                    f"IntoHSVChannelsStep: Channel {idx} is not 2D"
+                )
+            if channel.dtype != np.uint8:
+                raise ValidationError(
+                    f"IntoHSVChannelsStep: Channel {idx} is not uint8"
+                )
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": "into_hsv_channels",
+            "num_channels": len(image.hsv_channels),
+            "channel_shapes": [ch.shape for ch in image.hsv_channels]
+        })
+        
         return image
 
     def get_params(self) -> Dict[str, Any]:
@@ -471,24 +867,213 @@ class CombineChannelsStep(ProcessingStep):
         self.weight = weight
 
     def process(self, image: Image) -> Image:
-        if image.hsv_channels is None:
-            raise ValueError("Image does not contain enough HSV channels for CombineChannelsStep")
+        # Precondition validation
+        ImageValidator.validate_hsv_channels(image, "CombineChannelsStep", expected_channels=3)
 
+        # Get channel indices
         ch1_idx = {'H': 0, 'S': 1, 'V': 2}[self.channel1]
         ch2_idx = {'H': 0, 'S': 1, 'V': 2}[self.channel2]
 
         ch1 = image.hsv_channels[ch1_idx]
         ch2 = image.hsv_channels[ch2_idx]
+        
+        # Validate channels
+        if ch1.dtype != np.uint8 or ch2.dtype != np.uint8:
+            raise ValidationError(
+                f"CombineChannelsStep: Both channels must be uint8, "
+                f"got {ch1.dtype} and {ch2.dtype}"
+            )
+        if ch1.shape != ch2.shape:
+            raise ValidationError(
+                f"CombineChannelsStep: Channel shapes must match, "
+                f"got {ch1.shape} and {ch2.shape}"
+            )
 
+        # Ensure contiguous
+        ch1 = FormatConverter.ensure_contiguous(ch1)
+        ch2 = FormatConverter.ensure_contiguous(ch2)
+
+        # Processing
         combined_channel = add_channel_weight(ch1, ch2, self.weight)
+        
+        # Post-processing validation
+        if combined_channel is None:
+            raise ValidationError("CombineChannelsStep: Output is None")
+        if not isinstance(combined_channel, np.ndarray):
+            raise ValidationError(
+                f"CombineChannelsStep: Expected numpy array output, got {type(combined_channel)}"
+            )
+        if combined_channel.ndim != 2:
+            raise ValidationError(
+                f"CombineChannelsStep: Expected 2D output, got {combined_channel.ndim}D"
+            )
+        
         image.data = combined_channel
-        image.format = ImageFormat.GRAYSCALE  
+        image.format = ImageFormat.GRAYSCALE
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": "combine_channels",
+            "channel1": self.channel1,
+            "channel2": self.channel2,
+            "weight": self.weight,
+            "output_shape": image.data.shape,
+            "output_format": image.format.name
+        })
+        
         return image
 
     def get_params(self) -> Dict[str, Any]:
         return {
             "technique": "combine_channels",
             "weight": self.weight
+        }
+    
+class RedBlueFilterStep(ProcessingStep):
+    """Filter red and blue colors in a BGR image."""
+
+    def __init__(self):
+        pass
+
+    def process(self, image: Image) -> Image:
+        # Precondition validation
+        ImageValidator.validate_bgr_image(image, "RedBlueFilterStep")
+        
+        # Ensure data is contiguous
+        image.data = FormatConverter.ensure_contiguous(image.data)
+
+        # Processing
+        mask = filtro_rojo_azul(image.data)
+        
+        # Post-processing validation
+        if mask is None:
+            raise ValidationError("RedBlueFilterStep: Output is None")
+        if not isinstance(mask, np.ndarray):
+            raise ValidationError(
+                f"RedBlueFilterStep: Expected numpy array output, got {type(mask)}"
+            )
+        if mask.ndim != 2:
+            raise ValidationError(
+                f"RedBlueFilterStep: Expected 2D output, got {mask.ndim}D"
+            )
+        if mask.dtype != np.uint8:
+            raise ValidationError(
+                f"RedBlueFilterStep: Expected uint8 output, got {mask.dtype}"
+            )
+        
+        image.data = mask
+        image.format = ImageFormat.GRAYSCALE
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": "red_blue_filter",
+            "output_shape": image.data.shape,
+            "output_format": image.format.name
+        })
+        
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": "red_blue_filter",
+        }
+
+class FilterMaskConnectedComponentsStep(ProcessingStep):
+    """Filter out small connected components in a binary mask."""
+
+    def __init__(self, min_size: int = 20):
+        if min_size < 1:
+            raise ValueError("min_size must be at least 1")
+        self.min_size = min_size
+
+    def process(self, image: Image) -> Image:
+        # Precondition validation
+        ImageValidator.validate_grayscale_image(image, "FilterMaskConnectedComponentsStep")
+        
+        # Ensure data is contiguous
+        image.data = FormatConverter.ensure_contiguous(image.data)
+
+        # Processing
+        filtered_mask = filter_connected_components(image.data, min_size=self.min_size)
+        
+        # Post-processing validation
+        if filtered_mask is None:
+            raise ValidationError("FilterMaskConnectedComponentsStep: Output is None")
+        if not isinstance(filtered_mask, np.ndarray):
+            raise ValidationError(
+                f"FilterMaskConnectedComponentsStep: Expected numpy array output, got {type(filtered_mask)}"
+            )
+        if filtered_mask.ndim != 2:
+            raise ValidationError(
+                f"FilterMaskConnectedComponentsStep: Expected 2D output, got {filtered_mask.ndim}D"
+            )
+        if filtered_mask.dtype != np.uint8:
+            raise ValidationError(
+                f"FilterMaskConnectedComponentsStep: Expected uint8 output, got {filtered_mask.dtype}"
+            )
+        if filtered_mask.shape != image.data.shape:
+            raise ValidationError(
+                f"FilterMaskConnectedComponentsStep: Output shape {filtered_mask.shape} "
+                f"doesn't match input shape {image.data.shape}"
+            )
+        
+        image.data = filtered_mask
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": "filter_connected_components",
+            "min_size": self.min_size,
+            "output_shape": image.data.shape
+        })
+        
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": "filter_connected_components",
+            "min_size": self.min_size
+        }
+
+class IntoBooleanMaskStep(ProcessingStep):
+    """Convert a grayscale image to a boolean mask."""
+
+    def __init__(self):
+        pass
+
+    def process(self, image: Image) -> Image:
+        # Precondition validation
+        ImageValidator.validate_format(image, ImageFormat.GRAYSCALE, "IntoBooleanMaskStep")
+        ImageValidator.validate_data_not_none(image, "IntoBooleanMaskStep")
+        ImageValidator.validate_data_dimensions(image, 2, "IntoBooleanMaskStep")
+        
+        # Convert to boolean
+        bool_mask = image.data.astype(np.bool_)
+        
+        # Post-processing validation
+        if bool_mask.ndim != 2:
+            raise ValidationError(
+                f"IntoBooleanMaskStep: Expected 2D output, got {bool_mask.ndim}D"
+            )
+        if bool_mask.dtype != np.bool_:
+            raise ValidationError(
+                f"IntoBooleanMaskStep: Expected bool dtype, got {bool_mask.dtype}"
+            )
+        
+        image.data = bool_mask
+        image.format = ImageFormat.BOOLEAN
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": "into_boolean_mask",
+            "output_shape": image.data.shape,
+            "output_format": image.format.name
+        })
+        
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": "into_boolean_mask",
         }
 
 class ImageProcessor:
@@ -598,7 +1183,6 @@ class ImageProcessor:
             min_wavelength: Smallest filter wavelength
             mult: Scaling factor between successive wavelengths
             sigma_onf: Bandwidth parameter for log-Gabor
-            to_uint8: If True, output will be uint8 scaled to 0-255
 
         Returns:
             Self for method chaining
@@ -700,6 +1284,32 @@ class ImageProcessor:
             Self for method chaining
         """
         return self.add_step(CombineChannelsStep(channel1, channel2, weight))
+
+    def add_red_blue_filter(self) -> "ImageProcessor":
+        """Add step to filter red and blue colors in a BGR image.
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(RedBlueFilterStep())
+    
+    def add_filter_connected_components(self, min_size: int = 20) -> "ImageProcessor":
+        """Add step to filter out small connected components in a binary mask.
+
+        Args:
+            min_size: Minimum size of connected components to keep
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(FilterMaskConnectedComponentsStep(min_size=min_size))
+
+    def add_into_boolean_mask(self) -> "ImageProcessor":
+        """Add step to convert a grayscale image to a boolean mask.
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(IntoBooleanMaskStep())
 
     def process(self, image: Image, 
                 keep_intermediate: bool = False) -> Image:

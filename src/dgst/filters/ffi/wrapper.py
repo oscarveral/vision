@@ -1,6 +1,7 @@
 import numpy as np
 import ctypes as ffi
 import os
+import sys
 
 # Load the shared library.
 lib_path = os.path.join(

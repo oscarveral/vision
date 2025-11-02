@@ -1,17 +1,52 @@
 import numpy as np
+import cv2
 
-from dgst.filters.ffi import ransac_line_fitting
+from dgst.filters.ffi import ransac_line_fitting, ransac_circle_fitting
 from dgst.utils.loader import Image, ImageFormat
+from dgst.utils.validation import ImageValidator, ValidationError
 
 class FeatureExtractor:
-    """Image features extractor."""
+    """Image features extractor with feature storage and visualization capabilities."""
 
     def __init__(self, edge_image: Image):
+        # Validate input
+        if not isinstance(edge_image, Image):
+            raise ValidationError("FeatureExtractor: edge_image must be an Image object")
+        
+        ImageValidator.validate_data_not_none(edge_image, "FeatureExtractor")
+        ImageValidator.validate_data_dimensions(edge_image, 2, "FeatureExtractor")
+        
+        # Convert to boolean format if needed
         if edge_image.format != ImageFormat.BOOLEAN:
-            raise ValueError("Edge image must be of type bool.")
-        if len(edge_image.shape) != 2:
-            raise ValueError("Edge image must be a 2D array.")
-        self._edge_image = edge_image
+            if edge_image.data.dtype == np.bool_:
+                edge_image.format = ImageFormat.BOOLEAN
+            else:
+                # Convert to boolean
+                edge_image.data = edge_image.data.astype(np.bool_)
+                edge_image.format = ImageFormat.BOOLEAN
+        
+        # Validate boolean format
+        if edge_image.data.dtype != np.bool_:
+            raise ValidationError(
+                f"FeatureExtractor: Expected bool dtype, got {edge_image.data.dtype}"
+            )
+        
+        self._edge_image = edge_image.clone()
+        self._original_image = edge_image.clone()
+        
+        # Storage for detected features
+        self._lines = []
+        self._segments = []
+        self._circles = []
+        
+        # Metadata
+        self._metadata = {
+            'lines_detected': 0,
+            'segments_detected': 0,
+            'circles_detected': 0,
+            'extraction_history': []
+        }
+
 
     def ransac_line_fitting(
         self,
@@ -20,6 +55,7 @@ class FeatureExtractor:
         min_inliers: int,
         max_lsq_iterations: int = 0,
         erase: bool = False,
+        number_lines: int = 1,
     ) -> tuple:
         """Fit a line to edge points using RANSAC.
 
@@ -33,7 +69,8 @@ class FeatureExtractor:
         Returns:
             A tuple (a, b, c) representing the line equation ax + by + c = 0
         """
-        if min_inliers_ratio <= 0:
+        # Validate parameters
+        if min_inliers <= 0:
             raise ValueError("Minimum number of inliers must be positive.")
         if max_lsq_iterations < 0:
             raise ValueError(
@@ -44,21 +81,46 @@ class FeatureExtractor:
         if distance_threshold <= 0:
             raise ValueError("Distance threshold must be positive.")
 
-        result = ransac_line_fitting(
-            edge_map=self._edge_image.data,
-            max_iterations=max_iterations,
-            max_lsq_iterations=max_lsq_iterations,
-            distance_threshold=distance_threshold,
-            min_inlier_count=min_inliers,
-        )
+        for _ in range(number_lines):
 
-        if result is None:
-            return None, self._edge_image
+            result = ransac_line_fitting(
+                edge_map=self._edge_image.data,
+                max_iterations=max_iterations,
+                max_lsq_iterations=max_lsq_iterations,
+                distance_threshold=distance_threshold,
+                min_inlier_count=min_inliers,
+            )
 
-        if erase:
-            self._remove_line(result, distance_threshold)
+            if result is None:
+                return
 
-        return result, self._edge_image.clone()
+            # Validate result
+            if not isinstance(result, tuple) or len(result) != 3:
+                raise ValidationError(
+                    f"ransac_line_fitting: Expected tuple of 3 elements, got {type(result)}"
+                )
+
+            if erase:
+                self._remove_line(result, distance_threshold)
+                
+            # Store the detected line
+            if result is not None:
+                self._lines.append(result)
+                self._metadata['lines_detected'] += 1
+                self._metadata['extraction_history'].append({
+                    'type': 'line',
+                    'method': 'ransac_line_fitting',
+                    'parameters': {
+                        'max_iterations': max_iterations,
+                        'distance_threshold': distance_threshold,
+                        'min_inliers': min_inliers,
+                        'max_lsq_iterations': max_lsq_iterations
+                    }
+                })
+
+            min_inliers = min_inliers - 2  # Reducimos el umbral de inliers para encontrar líneas más débiles
+
+        return
 
     def _remove_line(self, line: tuple, distance_threshold: float):
         """Remove inliers of a given line from the edge image.
@@ -107,9 +169,6 @@ class FeatureExtractor:
             min_inliers: Minimum number of inliers to accept a model.
             max_lsq_iterations: Number of least squares refinement iterations. Set to 0 to skip refinement.
             erase: If True, remove the inliers of the detected lines from the edge image.
-
-        Returns:
-            A list of detected lines represented as tuples (a, b, c).
         """
         if window_size <= 0:
             raise ValueError("Window size must be positive.")
@@ -147,6 +206,22 @@ class FeatureExtractor:
                     detected_lines.append(adjusted_line)
                     if erase:
                         self._remove_line(adjusted_line, distance_threshold)
+        
+        # Store all detected lines
+        self._lines.extend(detected_lines)
+        self._metadata['lines_detected'] += len(detected_lines)
+        self._metadata['extraction_history'].append({
+            'type': 'lines',
+            'method': 'windowed_ransac_line_fitting',
+            'count': len(detected_lines),
+            'parameters': {
+                'window_size': window_size,
+                'step': step,
+                'max_iterations': max_iterations,
+                'distance_threshold': distance_threshold,
+                'min_inliers': min_inliers
+            }
+        })
 
         return detected_lines, self._edge_image.clone()
     
@@ -324,6 +399,26 @@ class FeatureExtractor:
         if segment is None and erase:
             # Remove inliers of the detected line from the edge image
             self._remove_line(line, distance_threshold)
+        
+        # Store detected features
+        if line is not None:
+            self._lines.append(line)
+            self._metadata['lines_detected'] += 1
+        
+        if segment is not None:
+            self._segments.append(segment)
+            self._metadata['segments_detected'] += 1
+            self._metadata['extraction_history'].append({
+                'type': 'segment',
+                'method': 'ransac_segment_fitting',
+                'parameters': {
+                    'max_iterations': max_iterations,
+                    'distance_threshold': distance_threshold,
+                    'density_threshold': density_threshold,
+                    'min_inliers': min_inliers,
+                    'min_segment_length': min_segment_length
+                }
+            })
 
         return line, segment
 
@@ -380,6 +475,22 @@ class FeatureExtractor:
         if erase:
             self._remove_circle(result, distance_threshold)
             self._edge_image = self._edge_image
+        
+        # Store detected circle
+        if result is not None:
+            self._circles.append(result)
+            self._metadata['circles_detected'] += 1
+            self._metadata['extraction_history'].append({
+                'type': 'circle',
+                'method': 'ransac_circle_fitting',
+                'parameters': {
+                    'max_iterations': max_iterations,
+                    'distance_threshold': distance_threshold,
+                    'min_inlier_ratio': min_inlier_ratio,
+                    'min_radius': min_radius,
+                    'max_radius': max_radius
+                }
+            })
 
         return result, self._edge_image
 
@@ -409,3 +520,249 @@ class FeatureExtractor:
         distances = np.sqrt((xx - x_center) ** 2 + (yy - y_center) ** 2)
         inlier_mask = np.abs(distances - radius) <= distance_threshold
         self._edge_image[yy[inlier_mask], xx[inlier_mask]] = False
+    
+    # Properties for accessing detected features
+    @property
+    def lines(self):
+        """Get all detected lines."""
+        return self._lines.copy()
+    
+    @property
+    def segments(self):
+        """Get all detected segments."""
+        return self._segments.copy()
+    
+    @property
+    def circles(self):
+        """Get all detected circles."""
+        return self._circles.copy()
+    
+    @property
+    def metadata(self):
+        """Get extraction metadata."""
+        return self._metadata.copy()
+    
+    @property
+    def original_image(self):
+        """Get the original edge image before any modifications."""
+        return self._original_image
+    
+    def clear_features(self):
+        """Clear all stored features and reset metadata."""
+        self._lines = []
+        self._segments = []
+        self._circles = []
+        self._metadata = {
+            'lines_detected': 0,
+            'segments_detected': 0,
+            'circles_detected': 0,
+            'extraction_history': []
+        }
+    
+    def get_feature_count(self):
+        """Get count of all detected features.
+        
+        Returns:
+            dict: Dictionary with counts of lines, segments, and circles
+        """
+        return {
+            'lines': len(self._lines),
+            'segments': len(self._segments),
+            'circles': len(self._circles)
+        }
+    
+    # Painting methods
+    
+    def paint_lines_on_image(self, image: Image, lines=None, color=(0, 255, 0), thickness=2):
+        """Paint infinite lines on an image.
+        
+        Args:
+            image: Image object to paint on (modified in place)
+            lines: List of lines to paint. If None, uses stored lines.
+            color: BGR color tuple (default: green)
+            thickness: Line thickness in pixels
+            
+        Returns:
+            None (modifies image in place)
+        """
+        # Get image data
+        image_data = np.copy(image.data)
+        
+        # Convert boolean to uint8 if needed
+        if image_data.dtype == np.bool_:
+            image_data = image_data.astype(np.uint8) * 255
+        
+        # Convert grayscale to BGR if needed
+        if image_data.ndim == 2:
+            image_data = cv2.cvtColor(image_data, cv2.COLOR_GRAY2BGR)
+        
+        height, width = image_data.shape[:2]
+        
+        # Use stored lines if none provided
+        if lines is None:
+            lines = self._lines
+        
+        for line in lines:
+            if line is None:
+                continue
+                
+            a, b, c = line
+            if (b < 1e-6 and b > -1e-6):
+                # Vertical line
+                y_vals = np.array([0, height - 1])
+                x_vals = np.array([-c / a, -c / a])
+            elif (a < 1e-6 and a > -1e-6):
+                # Horizontal line
+                x_vals = np.array([0, width - 1])
+                y_vals = np.array([-c / b, -c / b])
+            else:
+                # Calculate two points at the image extremes
+                x_vals = np.array([0, width - 1])
+                y_vals = (-a * x_vals - c) / b
+                if (y_vals[0] < 0):
+                    y_vals[0] = 0
+                    x_vals[0] = (-b * y_vals[0] - c) / a
+                elif (y_vals[0] >= height):
+                    y_vals[0] = height - 1
+                    x_vals[0] = (-b * y_vals[0] - c) / a
+                if (y_vals[1] < 0):
+                    y_vals[1] = 0
+                    x_vals[1] = (-b * y_vals[1] - c) / a
+                elif (y_vals[1] >= height):
+                    y_vals[1] = height - 1
+                    x_vals[1] = (-b * y_vals[1] - c) / a
+            pt1 = (int(round(x_vals[0])), int(round(y_vals[0])))
+            pt2 = (int(round(x_vals[1])), int(round(y_vals[1])))
+            cv2.line(image_data, pt1, pt2, color, thickness)
+
+        # Update the Image object in place
+        image.format = ImageFormat.BGR 
+    
+    def paint_segments_on_image(self, image, segments=None, color=(255, 0, 0), thickness=2):
+        """Paint line segments on an image.
+        
+        Args:
+            image: Input image (numpy array or Image object)
+            segments: List of segments to paint. If None, uses stored segments.
+            color: BGR color tuple (default: blue)
+            thickness: Line thickness in pixels
+            
+        Returns:
+            numpy array with segments painted
+        """
+        # Handle Image object
+        if isinstance(image, Image):
+            image_data = image.data.copy()
+        else:
+            image_data = image.copy()
+        
+        # Convert boolean to uint8 if needed
+        if image_data.dtype == np.bool_:
+            image_data = image_data.astype(np.uint8) * 255
+        
+        # Convert grayscale to BGR if needed
+        if image_data.ndim == 2:
+            image_data = cv2.cvtColor(image_data, cv2.COLOR_GRAY2BGR)
+
+        image.format = ImageFormat.BGR
+        
+        # Use stored segments if none provided
+        if segments is None:
+            segments = self._segments
+        
+        for segment in segments:
+            if segment is None:
+                continue
+            
+            (start_x, start_y), (end_x, end_y) = segment
+            pt1 = (int(round(start_x)), int(round(start_y)))
+            pt2 = (int(round(end_x)), int(round(end_y)))
+            cv2.line(image_data, pt1, pt2, color, thickness)
+        
+        return image_data
+    
+    def paint_circles_on_image(self, image, circles=None, color=(0, 0, 255), thickness=2):
+        """Paint circles on an image.
+        
+        Args:
+            image: Input image (numpy array or Image object)
+            circles: List of circles to paint. If None, uses stored circles.
+            color: BGR color tuple (default: red)
+            thickness: Line thickness in pixels
+            
+        Returns:
+            numpy array with circles painted
+        """
+        # Handle Image object
+        if isinstance(image, Image):
+            image_data = image.data.copy()
+        else:
+            image_data = image.copy()
+        
+        # Convert boolean to uint8 if needed
+        if image_data.dtype == np.bool_:
+            image_data = image_data.astype(np.uint8) * 255
+        
+        # Convert grayscale to BGR if needed
+        if image_data.ndim == 2:
+            image_data = cv2.cvtColor(image_data, cv2.COLOR_GRAY2BGR)
+        
+        image.format = ImageFormat.BGR
+
+        # Use stored circles if none provided
+        if circles is None:
+            circles = self._circles
+        
+        for circle in circles:
+            if circle is None:
+                continue
+            
+            x_center, y_center, radius = circle
+            center = (int(round(x_center)), int(round(y_center)))
+            radius_int = int(round(radius))
+            cv2.circle(image_data, center, radius_int, color, thickness)
+        
+        return image_data
+    
+    def paint_all_features(self, image, line_color=(0, 255, 0), 
+                          segment_color=(255, 0, 0), circle_color=(0, 0, 255),
+                          thickness=2):
+        """Paint all detected features on an image.
+        
+        Args:
+            image: Input image (numpy array or Image object)
+            line_color: BGR color for lines (default: green)
+            segment_color: BGR color for segments (default: blue)
+            circle_color: BGR color for circles (default: red)
+            thickness: Line thickness in pixels
+            
+        Returns:
+            numpy array with all features painted
+        """
+        # Handle Image object
+        if isinstance(image, Image):
+            image_data = image.data.copy()
+        else:
+            image_data = image.copy()
+        
+        # Convert boolean to uint8 if needed
+        if image_data.dtype == np.bool_:
+            image_data = image_data.astype(np.uint8) * 255
+        
+        # Convert grayscale to BGR if needed
+        if image_data.ndim == 2:
+            image_data = cv2.cvtColor(image_data, cv2.COLOR_GRAY2BGR)
+
+        image.format = ImageFormat.BGR
+        
+        # Paint in order: lines, circles, segments (segments on top for better visibility)
+        if self._lines:
+            image_data = self.paint_lines_on_image(image_data, self._lines, line_color, thickness)
+        
+        if self._circles:
+            image_data = self.paint_circles_on_image(image_data, self._circles, circle_color, thickness)
+        
+        if self._segments:
+            image_data = self.paint_segments_on_image(image_data, self._segments, segment_color, thickness)
+        
+        return image_data

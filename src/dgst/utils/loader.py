@@ -1,12 +1,13 @@
 
 import os
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import cv2
 import json
 import numpy as np
 import enum
 from dgst import DATA_ROOT
 import copy
+from datetime import datetime
 
 
 class RegionOfInterest:
@@ -122,13 +123,61 @@ class ImageFormat(enum.Enum):
     GRAYSCALE = 2
     BOOLEAN = 3
 
+
+class ProcessingMetadata:
+    """Metadata tracking for image processing operations."""
+    
+    def __init__(self):
+        self.steps: List[Dict[str, Any]] = []
+        self.original_shape: Optional[tuple] = None
+        self.original_format: Optional[ImageFormat] = None
+        self.creation_time: str = datetime.now().isoformat()
+    
+    def add_step(self, step_info: Dict[str, Any]) -> None:
+        """Add a processing step to the metadata."""
+        step_info['timestamp'] = datetime.now().isoformat()
+        self.steps.append(step_info)
+    
+    def get_step_count(self) -> int:
+        """Get the total number of processing steps."""
+        return len(self.steps)
+    
+    def get_last_step(self) -> Optional[Dict[str, Any]]:
+        """Get information about the last processing step."""
+        return self.steps[-1] if self.steps else None
+    
+    def clone(self) -> "ProcessingMetadata":
+        """Create a deep copy of this metadata."""
+        new_metadata = ProcessingMetadata()
+        new_metadata.steps = copy.deepcopy(self.steps)
+        new_metadata.original_shape = self.original_shape
+        new_metadata.original_format = self.original_format
+        new_metadata.creation_time = self.creation_time
+        return new_metadata
+    
+    def __repr__(self) -> str:
+        return f"ProcessingMetadata(steps={len(self.steps)}, original_shape={self.original_shape})"
+
+
 class Image: 
-    def __init__(self, data: np.ndarray, rois: list[RegionOfInterest], calibration: Calibration = None, format: ImageFormat = ImageFormat.BGR):
+    def __init__(
+        self, 
+        data: np.ndarray, 
+        rois: list[RegionOfInterest], 
+        calibration: Calibration = None, 
+        format: ImageFormat = ImageFormat.BGR
+    ):
         self.data = data
         self.rois = rois
         self.calibration = calibration
         self.format = format
         self.hsv_channels: Optional[List[np.ndarray]] = None
+        self.metadata: ProcessingMetadata = ProcessingMetadata()
+        
+        # Store original properties in metadata
+        if data is not None:
+            self.metadata.original_shape = data.shape
+            self.metadata.original_format = format
 
     def show_rois(self):
 
@@ -153,6 +202,7 @@ class Image:
         - numpy array for image data is copied via np.copy
         - ROI objects are cloned
         - Calibration is cloned if present
+        - Metadata is cloned
         """
         data_copy = None
         if self.data is not None:
@@ -175,6 +225,7 @@ class Image:
 
         res = Image(data=data_copy, rois=rois_copy, calibration=calibration_copy, format=self.format)
         res.hsv_channels = hsv_copy
+        res.metadata = self.metadata.clone()
 
         return res
     
