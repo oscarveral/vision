@@ -4,7 +4,7 @@ from typing import List, Optional, Dict, Any
 from abc import ABC, abstractmethod
 
 from dgst.filters.ffi import box_filter, gaussian_filter, canny_edge_detection, kannala_brandt_undistort, kannala_brandt_map_points_to_undistorted, phase_congruency as pc_ffi, threshold_filter
-from dgst.filters.python import phase_congruency as pc_python, otsu_threshold, clahe_filter, dilate_edges, scale_inter_area, median_blur, into_hsv_channels, add_channel_weight, filtro_rojo_azul, filter_connected_components
+from dgst.filters.python import phase_congruency as pc_python, otsu_threshold, clahe_filter, dilate_edges, scale_inter_area, median_blur, into_hsv_channels, fuse_hsv_channels, add_channel_weight, filtro_rojo_azul, filter_connected_components
 from dgst.utils.loader import Image, RegionOfInterest, ImageFormat
 from dgst.utils.validation import ImageValidator, FormatConverter, ValidationError
 
@@ -851,6 +851,63 @@ class IntoHSVChannelsStep(ProcessingStep):
         return {
             "technique": "into_hsv_channels",
         }
+
+
+class FuseHSVChannelsStep(ProcessingStep):
+    """Fuse HSV channels back into a single HSV image."""
+    
+    def __init__(self):
+        pass
+
+    def process(self, image: Image) -> Image:
+        # Precondition validation
+        ImageValidator.validate_hsv_channels(image, "FuseHSVChannelsStep", expected_channels=3)
+        
+        # Ensure all channels are contiguous
+        contiguous_channels = []
+        for channel in image.hsv_channels:
+            contiguous_channels.append(FormatConverter.ensure_contiguous(channel))
+        
+        # Processing
+        hsv_image = fuse_hsv_channels(contiguous_channels)
+        
+        # Post-processing validation
+        if hsv_image is None:
+            raise ValidationError("FuseHSVChannelsStep: Output is None")
+        if not isinstance(hsv_image, np.ndarray):
+            raise ValidationError(
+                f"FuseHSVChannelsStep: Expected numpy array output, got {type(hsv_image)}"
+            )
+        if hsv_image.ndim != 3:
+            raise ValidationError(
+                f"FuseHSVChannelsStep: Expected 3D output, got {hsv_image.ndim}D"
+            )
+        if hsv_image.shape[2] != 3:
+            raise ValidationError(
+                f"FuseHSVChannelsStep: Expected 3 channels in output, got {hsv_image.shape[2]}"
+            )
+        if hsv_image.dtype != np.uint8:
+            raise ValidationError(
+                f"FuseHSVChannelsStep: Expected uint8 output, got {hsv_image.dtype}"
+            )
+        
+        # Store the fused HSV image
+        image.data = hsv_image
+        image.format = ImageFormat.HSV
+        
+        # Update metadata
+        image.metadata.add_step({
+            "technique": "fuse_hsv_channels",
+            "output_shape": image.data.shape,
+            "output_format": image.format.name
+        })
+        
+        return image
+
+    def get_params(self) -> Dict[str, Any]:
+        return {
+            "technique": "fuse_hsv_channels",
+        }
     
 class CombineChannelsStep(ProcessingStep):
     """Combine two channels with a specified weight for the second channel."""
@@ -937,7 +994,7 @@ class RedBlueFilterStep(ProcessingStep):
 
     def process(self, image: Image) -> Image:
         # Precondition validation
-        ImageValidator.validate_bgr_image(image, "RedBlueFilterStep")
+        ImageValidator.validate_hsv_image(image, "RedBlueFilterStep")
         
         # Ensure data is contiguous
         image.data = FormatConverter.ensure_contiguous(image.data)
@@ -1271,6 +1328,14 @@ class ImageProcessor:
             Self for method chaining
         """
         return self.add_step(IntoHSVChannelsStep())
+
+    def add_fuse_hsv_channels(self) -> 'ImageProcessor':
+        """Add step to fuse HSV channels back into a single HSV image.
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(FuseHSVChannelsStep())
 
     def add_channel_weight(self, channel1: str, channel2: str, weight: float) -> "ImageProcessor":
         """Add step to combine two channels with a specified weight for the second channel.

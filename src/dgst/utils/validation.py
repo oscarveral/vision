@@ -191,6 +191,30 @@ class ImageValidator:
             )
 
     @staticmethod
+    def validate_hsv_image(image: Image, step_name: str) -> None:
+        """
+        Validate that image is in HSV format with correct dimensions and type.
+
+        Args:
+            image: Image object to validate
+            step_name: Name of the processing step for error messages
+
+        Raises:
+            ValidationError: If image is not a valid HSV image
+        """
+        ImageValidator.validate_format(image, ImageFormat.HSV, step_name)
+        ImageValidator.validate_data_not_none(image, step_name)
+        ImageValidator.validate_data_dimensions(image, 3, step_name)
+        
+        if image.data.shape[2] != 3:
+            raise ValidationError(
+                f"{step_name}: HSV image must have 3 channels, "
+                f"but got {image.data.shape[2]} channels"
+            )
+        
+        ImageValidator.validate_data_type(image, np.uint8, step_name)
+
+    @staticmethod
     def validate_hsv_channels(
         image: Image, 
         step_name: str,

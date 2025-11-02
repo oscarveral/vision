@@ -122,6 +122,7 @@ class ImageFormat(enum.Enum):
     BGR = 1
     GRAYSCALE = 2
     BOOLEAN = 3
+    HSV = 4
 
 
 class ProcessingMetadata:
