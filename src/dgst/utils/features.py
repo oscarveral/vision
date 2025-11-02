@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+from pyparsing import Optional
 
 from dgst.filters.ffi import ransac_line_fitting, ransac_circle_fitting
 from dgst.utils.loader import Image, ImageFormat
@@ -16,6 +17,7 @@ class FeatureExtractor:
         self._original_edge_image = edge_image.clone()
         self._lines = []
         self._segments = []
+        self._circles = []
 
     def ransac_line_fitting(
         self,
@@ -398,6 +400,8 @@ class FeatureExtractor:
         if result is None:
             return None
 
+        self._circles.append(result)
+
         if erase:
             self._remove_circle(result, distance_threshold)
 
@@ -474,15 +478,36 @@ class FeatureExtractor:
     
 
     def paint_segments_on_image(self, color='blue'):
-        res = self._edge_image.clone()
-        image_with_segments = res.data
-        if (image_with_segments.ndim == 2):
+        copy = self._original_edge_image.clone()
+        image_with_segments = copy.data
+        if (copy.data.ndim == 2):
             # Convert boolean to uint8 first, then to BGR
-            image_with_segments = (image_with_segments * 255).astype(np.uint8)
+            image_with_segments = (copy.data * 255).astype(np.uint8)
             image_with_segments = cv2.cvtColor(image_with_segments, cv2.COLOR_GRAY2BGR)
+        height, width = image_with_segments.shape[:2]
         for segment in self._segments:
             (start_x, start_y), (end_x, end_y) = segment
             pt1 = (int(round(start_x)), int(round(start_y)))
             pt2 = (int(round(end_x)), int(round(end_y)))
             cv2.line(image_with_segments, pt1, pt2, color, 2)
-        return image_with_segments
+        copy.data = image_with_segments
+        return copy
+    
+    def paint_circles_on_image(self, color='green', base_image: Optional[Image] = None):
+        if base_image is None:
+            copy = self._original_edge_image.clone()
+        else:
+            copy = base_image.clone()
+        image_with_circles = copy.data
+        if (copy.data.ndim == 2):
+            # Convert boolean to uint8 first, then to BGR
+            image_with_circles = (copy.data * 255).astype(np.uint8)
+            image_with_circles = cv2.cvtColor(image_with_circles, cv2.COLOR_GRAY2BGR)
+        height, width = image_with_circles.shape[:2]
+        for circle in self._circles:
+            cx, cy, r = circle
+            center = (int(round(cx)), int(round(cy)))
+            radius = int(round(r))
+            cv2.circle(image_with_circles, center, radius, color, 2)
+        copy.data = image_with_circles
+        return copy

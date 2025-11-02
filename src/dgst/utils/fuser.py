@@ -95,16 +95,19 @@ class ImageFuser:
         ImageValidator.validate_data_not_none(img1, "ImageFuser.bitwise_or")
         ImageValidator.validate_data_not_none(img2, "ImageFuser.bitwise_or")
         
-        if img1.data.shape != img2.data.shape:
+        data1 = img1.data.copy()
+        data2 = img2.data.copy()
+
+        if data1.shape != data2.shape:
             raise ValidationError(
                 f"ImageFuser.bitwise_or: Images must have the same shape. "
-                f"Got {img1.data.shape} and {img2.data.shape}"
+                f"Got {data1.shape} and {data2.shape}"
             )
-        
-        if img1.data.dtype != img2.data.dtype:
+
+        if data1.dtype != data2.dtype:
             raise ValidationError(
                 f"ImageFuser.bitwise_or: Images must have the same dtype. "
-                f"Got {img1.data.dtype} and {img2.data.dtype}"
+                f"Got {data1.dtype} and {data2.dtype}"
             )
         
         res = img1.clone()
