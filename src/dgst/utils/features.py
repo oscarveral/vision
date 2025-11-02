@@ -1,6 +1,6 @@
 import numpy as np
 
-from dgst.filters.ffi import ransac_line_fitting
+from dgst.filters.ffi import ransac_line_fitting, ransac_circle_fitting
 from dgst.utils.loader import Image, ImageFormat
 
 class FeatureExtractor:
