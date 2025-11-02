@@ -16,6 +16,11 @@ Proyecto de detección de señales de tráfico utilizando técnicas de visión a
 - OpenMP (versión de Clang para desarrollo). En Ubuntu: `libomp-dev`.
 - (Opcional) UV para gestión de entornos y dependencias.
 
+> ![IMPORTANT]
+> Si ocurren errores de ejecución relacionados con la librería en C, es posible que tu sistema no soporte
+> instrucciones SIMD. En ese caso, edita el Makefile en `src/dgst/filters/ffi/Makefile` y elimina las banderas
+> relacionadas con SIMD.
+
 
 Uso rápido:
  
@@ -43,16 +48,16 @@ pip install -r requirements.txt
 uv pip install -r requirements.txt
 ```
 
+ - (Opcional) Compilar librerias C.
+```bash
+cd src/dgst/filters/ffi
+make
+```
+
  - Instalar el paquete DGST en el entorno:
 ```bash
 # Con pip:
 pip install -e .
 # Con UV:
 uv pip install -e .
-```
-
-- (Opcional) Compilar librerias C.
-```bash
-cd src/dgst/filters/ffi
-make
 ```
