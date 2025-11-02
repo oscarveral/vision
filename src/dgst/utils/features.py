@@ -1,6 +1,7 @@
 import numpy as np
+import cv2
 
-from dgst.filters.ffi import ransac_line_fitting
+from dgst.filters.ffi import ransac_line_fitting, ransac_circle_fitting
 from dgst.utils.loader import Image, ImageFormat
 
 class FeatureExtractor:
@@ -11,7 +12,10 @@ class FeatureExtractor:
             raise ValueError("Edge image must be of type bool.")
         if len(edge_image.data.shape) != 2:
             raise ValueError("Edge image must be a 2D array.")
-        self._edge_image = edge_image
+        self._edge_image = edge_image.clone()
+        self._original_edge_image = edge_image.clone()
+        self._lines = []
+        self._segments = []
 
     def ransac_line_fitting(
         self,
@@ -45,7 +49,7 @@ class FeatureExtractor:
             raise ValueError("Distance threshold must be positive.")
 
         result = ransac_line_fitting(
-            edge_map=self._edge_image,
+            edge_map=self._edge_image.data,
             max_iterations=max_iterations,
             max_lsq_iterations=max_lsq_iterations,
             distance_threshold=distance_threshold,
@@ -54,6 +58,8 @@ class FeatureExtractor:
 
         if result is None:
             return None
+
+        self._lines.append(result)
 
         if erase:
             self._remove_line(result, distance_threshold)
@@ -130,15 +136,17 @@ class FeatureExtractor:
 
         for y in range(0, self._edge_image.data.shape[0] - window_size + 1, step):
             for x in range(0, self._edge_image.data.shape[1] - window_size + 1, step):
-                window = self._edge_image.data[y:y + window_size, x:x + window_size]
-                feature_extractor = FeatureExtractor(edge_image=Image(data=window.copy(), rois=[], format=ImageFormat.BOOLEAN))
-                line = feature_extractor.ransac_line_fitting(
+                window = self._edge_image.data[y:y + window_size, x:x + window_size].copy()
+                
+                # Call RANSAC directly on the window
+                line = ransac_line_fitting(
+                    edge_map=window,
                     max_iterations=max_iterations,
-                    distance_threshold=distance_threshold,
-                    min_inliers=min_inliers,
                     max_lsq_iterations=max_lsq_iterations,
-                    erase=False,
+                    distance_threshold=distance_threshold,
+                    min_inlier_count=min_inliers,
                 )
+                
                 if line is not None:
                     # Adjust line parameters to the original image coordinates
                     a, b, c = line
@@ -148,6 +156,7 @@ class FeatureExtractor:
                     if erase:
                         self._remove_line(adjusted_line, distance_threshold)
 
+        self._lines.extend(detected_lines)    
         return detected_lines
     
     def get_line_support(
@@ -268,6 +277,7 @@ class FeatureExtractor:
                 if length < min_segment_length:
                     return None
 
+            self._segments.append(ans)
             return ans
         else:
             return None
@@ -419,3 +429,60 @@ class FeatureExtractor:
         distances = np.sqrt((xx - x_center) ** 2 + (yy - y_center) ** 2)
         inlier_mask = np.abs(distances - radius) <= distance_threshold
         self._edge_image.data[yy[inlier_mask], xx[inlier_mask]] = False
+
+
+    def paint_lines_on_image(self, color='red'):
+        copy = self._original_edge_image.clone()
+        image_with_lines = copy.data
+        if (copy.data.ndim == 2):
+            # Convert boolean to uint8 first, then to BGR
+            image_with_lines = (copy.data * 255).astype(np.uint8)
+            image_with_lines = cv2.cvtColor(image_with_lines, cv2.COLOR_GRAY2BGR)
+        height, width = image_with_lines.shape[:2]
+        for line in self._lines:
+            a, b, c = line
+            if (b < 1e-6 and b > -1e-6):
+                # Hay linea vertical
+                y_vals = np.array([0, height - 1])
+                x_vals = np.array([-c / a, -c / a])
+            elif (a < 1e-6 and a > -1e-6):
+                # Hay linea horizontal
+                x_vals = np.array([0, width - 1])
+                y_vals = np.array([-c / b, -c / b])
+            else:
+                # Calculamos dos puntos en los extremos de la imagen
+                x_vals = np.array([0, width - 1])
+                y_vals = (-a * x_vals - c) / b
+                if (y_vals[0] < 0):
+                    y_vals[0] = 0
+                    x_vals[0] = (-b * y_vals[0] - c) / a
+                elif (y_vals[0] >= height):
+                    y_vals[0] = height - 1
+                    x_vals[0] = (-b * y_vals[0] - c) / a
+                if (y_vals[1] < 0):
+                    y_vals[1] = 0
+                    x_vals[1] = (-b * y_vals[1] - c) / a
+                elif (y_vals[1] >= height):
+                    y_vals[1] = height - 1
+                    x_vals[1] = (-b * y_vals[1] - c) / a
+            pt1 = (int(round(x_vals[0])), int(round(y_vals[0])))
+            pt2 = (int(round(x_vals[1])), int(round(y_vals[1])))
+            cv2.line(image_with_lines, pt1, pt2, color, 2)
+
+        copy.data = image_with_lines
+        return copy
+    
+
+    def paint_segments_on_image(self, color='blue'):
+        res = self._edge_image.clone()
+        image_with_segments = res.data
+        if (image_with_segments.ndim == 2):
+            # Convert boolean to uint8 first, then to BGR
+            image_with_segments = (image_with_segments * 255).astype(np.uint8)
+            image_with_segments = cv2.cvtColor(image_with_segments, cv2.COLOR_GRAY2BGR)
+        for segment in self._segments:
+            (start_x, start_y), (end_x, end_y) = segment
+            pt1 = (int(round(start_x)), int(round(start_y)))
+            pt2 = (int(round(end_x)), int(round(end_y)))
+            cv2.line(image_with_segments, pt1, pt2, color, 2)
+        return image_with_segments
