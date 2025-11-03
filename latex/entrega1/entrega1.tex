@@ -1,0 +1,581 @@
+\documentclass{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage[spanish]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[style=ieee]{biblatex}
+
+\addbibresource{references.bib}
+
+\begin{document}
+
+\title{Visión Artificial\\[1ex]\large BT1 y BT2}
+\author{Juan Diego Gallego Nicolás \and Óscar Vera López}
+\date{\today}
+
+\maketitle
+
+\section*{Items cubiertos}
+\begin{itemize}
+  \item \textbf{BT1d (5\%x3)} - Implementación de filtros de
+    procesamiento de imágenes básicos y avanzados.
+  \item \textbf{BT1ewc (10\%)} - Implementación manual de algoritmos
+    de procesamiento de imágenes en C y Python.
+  \item \textbf{BT1h (5\%)} - Rectificación planar. Deshacer la
+    distorsión de la lente ojo de pez.
+  \item \textbf{BT1o (5\%)} - Umbralizado dinámico con Otsu y CLAHE.
+  \item \textbf{BT1p (5\%)} - Gráficas de resultados y comparativas
+    de rendimiento.
+\end{itemize}
+
+\section{BT1: Procesamiento de imagen básico}
+
+\subsection{Introducción}
+
+A lo largo de esta sección se explican las técnicas implementadas y
+se muestran ejemplos de su aplicación a imágenes de prueba. Se
+abordan técnicas como la corrección de distorsión de lentes, la
+conversión a escala de grises, el umbral de Otsu y el filtro CLAHE
+entre otras; definiéndose más adelante su aplicabilidad en nuestro
+pipeline de visión artificial orientado a la detección de señales de tráfico.
+
+\subsection{Dataset e imágenes}
+
+\subsubsection{Descripción del dataset e importación}
+
+En este apartado se describe el dataset utilizado en la práctica y se
+muestran algunas imágenes representativas del mismo. El dataset
+seleccionado es Zenseact Frames (ZOD) \cite{zod}, que contiene
+imágenes de cámaras frontales de vehículos en diversas condiciones de
+iluminación y clima. Contiene 100.000 imágenes etiquetadas para
+tareas de detección y segmentación de objetos, así como datos de
+sensores adicionales como LiDAR y radar. Además, las imágenes han
+sido tomadas en 14 países diferentes de la Unión Europea, lo que nos
+aporta un nuevo enfoque quizás más alejado de los datasets
+tradicionales tomados en Estados Unidos o Asia.
+
+Dado que el dataset es muy grande, en este documento se trabajará con
+un subconjunto reducido ubicado en \texttt{/images/bt1}. Además, dado
+que la estructura del dataset es muy regular, en lo que respecta a la
+organización de las imágenes junto a sus metadatos, se ha
+implementado un cargador que permite cargar las imágenes y sus
+etiquetas de forma sencilla dado su número de índice dentro del
+dataset y la raíz del mismo. A continuación, se muestran algunas
+imágenes representativas del dataset:
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/dataset_grid.png}
+  \caption{Grid de imágenes representativas del dataset ZOD (4x3)}
+  \label{fig:dataset_grid}
+\end{figure}
+
+\subsubsection{Visualización de regiones de interés}
+
+Además de cargar las imágenes, es importante visualizar las regiones
+de interés (ROIs) que contienen las señales de tráfico, esto nos
+servirá para verificar más adelante nuestro procesado de imágenes.
+Utilizando el cargador implementado, podemos cargar una imagen y sus
+ROIs asociadas, y luego dibujar las ROIs sobre la imagen para su visualización.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/rois_visualization.png}
+  \caption{Visualización de las regiones de interés (ROIs) en las
+  imágenes del dataset}
+  \label{fig:rois_visualization}
+\end{figure}
+
+Se puede observar como el etiquetado no es perfecto, ya que algunas
+señales no están completamente dentro de las regiones de interés
+(ROIs) definidas. Sin embargo, para los propósitos de esta práctica,
+consideraremos que las ROIs son suficientemente buenas para
+permitirnos más adelante analizar nuestra técnica de detección y
+reconocimiento de señales de tráfico.
+
+\subsection{Procesado de imágenes}
+
+En esta sección, cuando fuere necesario, utilizaremos $n$ y $m$ para
+referirnos a las dimensiones de una imagen y $k$ para el tamaño
+(lado) de un kernel de convolución.
+
+\subsubsection{La clase ImageProcessor}
+
+Para facilitar el procesado de imágenes, se ha implementado la clase
+\texttt{ImageProcessor}, que permite encadenar múltiples operaciones
+de procesado de imágenes de manera sencilla y modular. Esta clase
+utiliza el patrón de diseño ``Builder'', lo que permite añadir
+diferentes filtros y transformaciones a una imagen de forma fluida.
+Véanse los notebooks de ejemplo para más detalles.
+
+\subsubsection{Corrección de la distorsión}
+
+Obsérvese como la imagen original presenta la distorsión típica de
+una lente de ojo de pez. Como viene explicado en la web del dataset,
+estas cámaras pretenden maximizar el campo de visión de la cámara.
+Afortunadamente, el dataset incluye los parámetros de calibración de
+la cámara. Para corregir esta distorsión, es necesario aplicar el
+algoritmo de corrección de distorsión de Kannala-Brandt
+\cite{kannala2004}, que utiliza los parámetros de calibración para
+mapear los píxeles de la imagen distorsionada a sus posiciones
+correctas en una imagen sin distorsión. La implementación de este
+algoritmo implementado en C se encuentra en la función
+\texttt{kannala\_brandt\_undistort} del módulo
+\texttt{dgst/filters/ffi/kannala.c}. Tiene una complejidad espacial y
+temporal de $O(nm)$.
+
+\textit{Items de evaluación: \underline{\textbf{BT1h}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/distortion_correction.png}
+  \caption{Comparación entre imagen original con distorsión de ojo de
+  pez y la imagen corregida}
+  \label{fig:distortion_correction}
+\end{figure}
+
+Obsérvese que, aun manteniendo la resolución original de la imagen,
+la distorsión ha sido corregida satisfactoriamente, sacrificando
+únicamente una pequeña parte de la imagen en los bordes. Véase
+también como el salpicadero del coche ya no se ve curvado y que las
+líneas de la carretera son rectas en lugar de curvas. Usamos nuestra
+corrección de distorsión para también corregir las posiciones de las
+ROIs en la imagen, de forma que podamos seguir trabajando con ellas
+en el resto del pipeline.
+
+\subsubsection{Filtros básicos}
+
+\paragraph{Filtro de escala de grises}
+
+Tal y como su nombre indica, nuestro pipeline de procesamiento
+requerirá que la imagen se encuentre en escala de grises para poder
+aplicar ciertos filtros u operaciones. Para ello, en el procesador se
+pone a disposición el filtro de grises proporcionado por OpenCV.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/grayscale_filter.png}
+  \caption{Comparación entre imagen original a color y en escala de grises}
+  \label{fig:grayscale_filter}
+\end{figure}
+
+\paragraph{Filtro de umbralización}
+
+El filtro de umbralización es una técnica de procesamiento de
+imágenes que convierte una imagen en escala de grises en una imagen
+binaria. Esto se logra estableciendo un umbral, de manera que todos
+los píxeles con valores por encima del umbral se establecen en blanco
+(255), y todos los píxeles con valores por debajo del umbral se
+establecen en negro (0). Este proceso es útil para resaltar
+características específicas de la imagen y facilitar su análisis.
+Nuestra implementación sencilla en C se encuentra en la carpeta
+\texttt{dgst/filters/ffi/threshold.c}. Se asume que la imagen de
+entrada ya está en blanco y negro. Tiene una complejidad de $O(nm)$.
+
+\textit{Items de evaluación: \underline{\textbf{BT1d}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/threshold_filter.png}
+  \caption{Comparación entre imagen original y umbralizada}
+  \label{fig:threshold_filter}
+\end{figure}
+
+\subsubsection{Filtros de suavizado}
+
+Nuestro pipeline requerirá de suavizado de imágenes para reducir el
+ruido y mejorar la calidad de los resultados.
+
+\paragraph{Filtro de caja}
+
+El filtro de caja o de medias es un método simple y efectivo para
+suavizar imágenes. Este filtro reemplaza el valor de cada píxel por
+el promedio de los valores de los píxeles en su vecindario. Esto
+ayuda a reducir el ruido y los detalles finos en la imagen, lo que
+puede ser beneficioso para tareas de análisis de imágenes
+posteriores. Nuestra implementación en C se encuentra en la carpeta
+\texttt{dgst/filters/ffi/box.c}. Nos valemos de una optimización
+utilizando sumas parciales para incrementar el rendimiento y
+conseguir una complejidad de $O(nm)$ en tiempo y en memoria. Se
+requiere que la imagen de entrada tenga una sola dimensión (blanco y
+negro). El tamaño del filtro proporcionado debe ser impar y mayor que cero.
+
+\textit{Items de evaluación: \underline{\textbf{BT1d}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/box_filter.png}
+  \caption{Comparación entre imagen original y filtrada con filtro de caja}
+  \label{fig:box_filter}
+\end{figure}
+
+\paragraph{Filtro gaussiano}
+
+El filtro gaussiano es otro método popular para el suavizado de
+imágenes. A diferencia del filtro de caja, que utiliza un promedio
+simple, el filtro gaussiano aplica una función de peso gaussiano a
+los píxeles en el vecindario de cada píxel. Esto significa que los
+píxeles más cercanos al píxel central tienen un mayor impacto en el
+valor suavizado que los píxeles más lejanos. Este enfoque ayuda a
+preservar los bordes y las características importantes de la imagen
+mientras se reduce el ruido. Nuestra implementación en C se encuentra
+en la carpeta \texttt{dgst/filters/ffi/gaussian.c}. Al igual que con
+el filtro de caja, se requiere que la imagen de entrada tenga una
+sola dimensión (blanco y negro). El tamaño del kernel gaussiano se
+calcula en función de la desviación estándar deseada siguiendo la
+relación $k=6\sigma+1$, con $k$ siempre impar. Utilizando la
+propiedad de separabilidad de este filtro, conseguimos una
+complejidad de $O(nm\times(6\sigma+1))$ en espacio y memoria.
+
+\textit{Items de evaluación: \underline{\textbf{BT1d}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/gaussian_filter.png}
+  \caption{Comparación entre imagen original y filtrada con filtro gaussiano}
+  \label{fig:gaussian_filter}
+\end{figure}
+
+\subsubsection{Filtros de detección de bordes}
+
+El objetivo general de este proyecto es la detección de señales de
+tráfico, lo que implicará detección de formas y por tanto, la
+necesidad de identificar los bordes de estas señales en la imagen.
+Para esto será necesario aplicar filtros de detección de bordes que
+resalten las transiciones en la intensidad de los píxeles.
+
+\paragraph{Filtro de Canny}
+
+Este algoritmo se basa en una serie de pasos que incluyen la
+reducción de ruido, la detección de gradientes y la supresión de
+no-máximos, lo que permite identificar bordes de manera efectiva. La
+implementación en C se encuentra en la carpeta
+\texttt{dgst/filters/ffi/canny.c}. Al igual que con los filtros
+anteriores, se requiere que la imagen de entrada tenga una sola
+dimensión (blanco y negro). Además, necesita un suavizado previo para
+poder calcular los gradientes de forma satisfactoria.
+
+\textit{Items de evaluación: \underline{\textbf{BT1d}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/canny_filter.png}
+  \caption{Comparación entre imagen original y bordes detectados con Canny}
+  \label{fig:canny_filter}
+\end{figure}
+
+Obsérvese que hemos tenido que ajustar los parámetros del filtro
+gaussiano y de la detección de bordes de Canny para obtener mejores
+resultados. Estos ajustes son cruciales para optimizar el rendimiento
+del pipeline de procesamiento de imágenes.
+
+\subsubsection{Filtros avanzados}
+
+En esta sección, exploraremos filtros más avanzados que pueden
+mejorar aún más la detección de bordes y la calidad de las imágenes.
+Hemos querido buscar técnicas más avanzadas para comparar su
+rendimiento con los filtros tradicionales que hemos utilizado hasta ahora.
+
+\paragraph{Filtro de congruencia de fase}
+
+El filtro de congruencia de fase es una técnica avanzada que se
+utiliza para la detección de bordes y la mejora de imágenes. Este
+método se basa en la transformada de Fourier y se centra en la fase
+de la imagen en lugar de la amplitud. Al hacerlo, puede resaltar
+características importantes de la imagen que pueden no ser evidentes
+en el dominio espacial. En este caso, disponemos de 2
+implementaciones, una en C y otra en Python con numpy, en los
+ficheros \texttt{dgst/filters/ffi/phase.c} y
+\texttt{dgst/filters/python/phase.py} respectivamente.
+
+\textit{Items de evaluación: \underline{\textbf{BT1d}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/phase_congruency_filter.png}
+  \caption{Aplicación del filtro de congruencia de fase}
+  \label{fig:phase_congruency_filter}
+\end{figure}
+
+Obsérvese como el filtro de congruencia es capaz de resaltar los
+bordes de forma muy efectiva, pudiéndose distinguir todos los
+contornos de la imagen, incluyendo las señales de tráfico que nos
+interesan. Combinándose con el filtro de umbralización, podemos
+obtener una imagen binaria que resalta los bordes detectados de
+manera muy clara.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/phase_congruency_thresholded.png}
+  \caption{Bordes detectados con congruencia de fase aplicando umbralización}
+  \label{fig:phase_congruency_thresholded}
+\end{figure}
+
+Uno de los inconvenientes es la generación de artefactos en zonas
+homogéneas de la imagen, lo que puede dificultar el análisis
+posterior. Sin embargo, estos artefactos pueden ser mitigados
+mediante el refinamiento de los parámetros del filtro y la aplicación
+de técnicas adicionales de prey post-procesamiento.
+
+\paragraph{Filtro de umbralización automática de Otsu}
+
+El método de umbralización automática de Otsu es una técnica avanzada
+que permite determinar un umbral óptimo para convertir una imagen en
+escala de grises en una imagen binaria. A diferencia del umbral fijo,
+que requiere la selección manual de un valor, el método de Otsu
+analiza la distribución de los niveles de gris en la imagen y calcula
+el umbral que minimiza la varianza intra-clase, es decir, la varianza
+dentro de las regiones de fondo y primer plano. Nuestra
+implementación en Python se encuentra en el fichero
+\texttt{dgst/filters/python/otsu.py} utilizando OpenCV.
+
+\textit{Items de evaluación: \underline{\textbf{BT1o}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/otsu_threshold.png}
+  \caption{Umbralización automática de Otsu aplicada a la imagen}
+  \label{fig:otsu_threshold}
+\end{figure}
+
+\paragraph{Filtro CLAHE (Contrast Limited Adaptive Histogram Equalization)}
+
+El filtro CLAHE (Contrast Limited Adaptive Histogram Equalization) es
+una técnica avanzada de mejora de contraste que se utiliza para
+mejorar la visibilidad de los detalles en imágenes con bajo
+contraste. A diferencia de la ecualización de histograma global, que
+puede amplificar el ruido en áreas homogéneas, CLAHE divide la imagen
+en pequeñas regiones (o ``tiles'') y aplica la ecualización de
+histograma a cada una de ellas de manera independiente. Además,
+limita el contraste para evitar la amplificación excesiva del ruido.
+Nuestra implementación en Python se encuentra en el fichero
+\texttt{dgst/filters/python/clahe.py} utilizando OpenCV.
+
+\textit{Items de evaluación: \underline{\textbf{BT1o}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/clahe_color.png}
+  \caption{Aplicación del filtro CLAHE a imagen en color}
+  \label{fig:clahe_color}
+\end{figure}
+
+En color se aprecia una mejora en la imagen pero no es tan evidente
+como en la imagen en escala de grises.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/clahe_grayscale_comparison.png}
+  \caption{Comparación entre imagen en escala de grises y con CLAHE aplicado}
+  \label{fig:clahe_grayscale_comparison}
+\end{figure}
+
+\subsection{Análisis y aplicación de filtros}
+
+Una vez expuestos los filtros sobre los que nos basamos, vamos a
+explorar cómo hacer combinaciones de los mismos para obtener los
+mejores resultados posibles en la tarea de detección de bordes.
+Empezaremos aplicando CLAHE a una imagen antes de realizar un
+umbralizado de Otsu y veremos cómo afecta esta modificación del
+contraste a la detección de elementos de la imagen.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/clahe_otsu_comparison_grid.png}
+  \caption{Comparación entre escala de grises y CLAHE aplicando
+  umbralizado de Otsu}
+  \label{fig:clahe_otsu_comparison}
+\end{figure}
+
+Apréciese como el contraste dinámico, aplicado por tiles locales en
+las imágenes, produce la suficiente distinción en los niveles de gris
+de las imágenes para permitir que el umbralizado de Otsu haga una
+mejor distinción de los elementos de la misma. El siguiente paso
+lógico es preguntarse si esto permite realizar una mejor detección de
+bordes en la imagen usando el clásico filtro de Canny. Para ello
+aplicaremos primero un suavizado gaussiano para reducir el ruido, y
+luego aplicaremos Canny tanto a la imagen original como a la imagen
+procesada con CLAHE y con CLAHE y Otsu.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/canny_clahe_otsu_comparison_grid.png}
+  \caption{Comparación de detección de bordes con Canny aplicando
+  diferentes combinaciones de preprocesado}
+  \label{fig:canny_clahe_otsu_comparison}
+\end{figure}
+
+Se observa como la aplicación de CLAHE mejora significativamente la
+detección de bordes en la imagen, resaltando las señales de tráfico y
+otros elementos importantes. La combinación de CLAHE con el
+umbralizado de Otsu también muestra mejoras, aunque en este caso, la
+diferencia no es tan pronunciada como con CLAHE solo e introduce
+mucho ruido que en ciertas situaciones podría dificultar la detección
+de elementos. Para reducirlo una opción es incrementar el suavizado
+gaussiano previo a la detección de bordes.
+
+Mirando en otra dirección, también es interesante explorar el
+rendimiento del filtro de congruencia de fase en comparación con los
+métodos tradicionales. Aplicando este filtro a la imagen original y a
+la imagen procesada con CLAHE, podemos observar cómo resalta los
+bordes de manera efectiva. Para ello, aplicamos un suavizado
+gaussiano previo para reducir el ruido y luego aplicamos el filtro de
+congruencia de fase y un umbralizado para obtener una imagen binaria
+de los bordes detectados.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/phase_clahe_comparison_grid.png}
+  \caption{Comparación entre congruencia de fase sin CLAHE y con
+  CLAHE (grid 3x2)}
+  \label{fig:phase_clahe_comparison}
+\end{figure}
+
+Curiosamente, utilizando CLAHE empeoran ligeramente los resultados al
+introducirse ruido adicional en la imagen. Esto se debe a que CLAHE
+modifica los niveles de gris de la imagen de manera local, lo que
+puede afectar negativamente al cálculo de la congruencia de fase. Por
+tanto, en este caso, parece que el filtro de congruencia de fase
+funciona mejor con la imagen original suavizada.
+
+Vamos ahora a comparar cualitativamente los resultados obtenidos con
+los diferentes métodos de detección de bordes que hemos explorado.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/phase_vs_canny_comparison.png}
+  \caption{Comparación directa entre Congruencia de Fase y Canny}
+  \label{fig:phase_vs_canny}
+\end{figure}
+
+En una comparativa entre nuestro filtro de congruencia de fase y el
+filtro de Canny con CLAHE, podemos observar que ambos métodos son
+capaces de detectar los bordes de manera efectiva. Sin embargo, el
+filtro de congruencia de fase tiende a resaltar más detalles finos y
+bordes débiles, mientras que el filtro de Canny con CLAHE y Otsu
+proporciona una detección más robusta y menos sensible al ruido,
+habiendo reducido ese ruido introducido por la aplicación de Otsu
+mediante el incremento de la desviación en el filtro Gaussiano previo
+a la detección de bordes. La idoneidad de cada método dependerá del
+contexto específico en el que usemos las imágenes.
+
+\subsection{Rendimientos y comparativas}
+
+\subsubsection{Filtros de suavizado}
+
+Vamos a realizar un pequeño análisis de rendimiento de las diferentes
+implementaciones de los filtros que hemos desarrollado. En
+particular, nos centraremos en comparar el rendimiento de la
+implementación en C de los filtros de suavizado.
+
+\textit{Items de evaluación: \underline{\textbf{BT1p}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/benchmark_smoothing_filters.png}
+  \caption{Gráficas de benchmark para filtros de suavizado: Box
+  Filter y Gaussian Filter en imágenes Lenna y Denis}
+  \label{fig:benchmark_smoothing}
+\end{figure}
+
+Dado que aplicamos una optimización de sumas parciales, para tamaños
+pequeños de filtro, obtenemos un rendimiento hasta de 0.6x respecto a
+OpenCV. No obstante, al incrementar el tamaño del filtro el
+rendimiento en OpenCV se degrada y gana nuestra implementación,
+obteniendo hasta un 3x en imágenes pequeñas. Sin embargo, en el
+filtro Gaussiano, debemos conceder la victoria (por el momento) a
+OpenCV, ya que internamente harán uso de algoritmos más complejos
+como transformadas de Fourier, que debido al alcance de esta
+asignatura, no hemos implementado. Por tanto OpenCV obtiene un mejor
+rendimiento en la mayoría, o totalidad según el hardware, de casos.
+
+También es necesario ver la diferencia cualitativa entre los
+suavizados para ver si la implementación en C es correcta. Como se
+observará, las diferencias son mínimas y se deben principalmente a
+diferencias internas en el manejo de bordes y algoritmos.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/smoothing_ffi_vs_smoothing_opencv_comparison.png}
+  \caption{Comparación cualitativa entre implementaciones FFI y
+  OpenCV de filtros Box y Gaussian (grid 2x3)}
+  \label{fig:smoothing_ffi_opencv}
+\end{figure}
+
+\subsubsection{Filtro de congruencia de fase}
+
+Respecto a la implementación del filtro de congruencia de fase en C
+frente a la implementación en Python con numpy, nuestros experimentos
+muestran que la versión en C es abismalmente más lenta que la versión
+de Python, por lo que omitiremos su uso en favor de la versión en
+Python, que ya se ha mostrado en secciones anteriores.
+
+En comparación con la detección de bordes con Canny, el filtro de
+congruencia de fase es considerablemente más lento, debido a la
+naturaleza computacionalmente intensiva de la transformada de Fourier
+y las operaciones asociadas. Por tanto, para aplicaciones en tiempo
+real o donde el rendimiento sea crítico, Canny sigue siendo la
+opción preferida.
+
+\subsubsection{Filtro de Canny}
+
+Al igual que con el suavizado, hemos comparado el rendimiento de
+nuestra implementación en C del filtro de Canny con la implementación de OpenCV.
+
+Como era de esperar, OpenCV obtiene un mejor rendimiento, tardando
+0.5ms de media en un
+procesador Intel i7\-10750H Comet Lake, pero
+consideramos nuestra implementación suficientemente rápida para los
+propósitos de este proyecto, con un tiempo medio de 3.5ms.
+
+Cualitativamente, los resultados obtenidos con nuestra implementación
+son comparables a los de OpenCV, aunque pueden existir pequeñas
+diferencias debido a la elección de parámetros, suavizado previo y
+detalles de implementación. Por lo general, la implementación de
+OpenCV parece capaz de detectar bordes ligeramente más finos y precisos.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/canny_ffi_vs_opencv_comparison.png}
+  \caption{Comparación entre implementación FFI y OpenCV del filtro de Canny}
+  \label{fig:canny_ffi_opencv}
+\end{figure}
+
+\subsection{Conclusiones}
+
+Hemos explorado diversas técnicas de procesamiento de imágenes con el
+objetivo de mejorar la detección de bordes en imágenes de tráfico. A
+través de la implementación y análisis de filtros como CLAHE,
+umbralización de Otsu, filtro de Canny y congruencia de fase, hemos
+podido evaluar sus fortalezas y debilidades en diferentes
+combinaciones. A partir de nuestros experimentos, hemos concluido que
+la elección del filtro y su configuración dependen en gran medida del
+contexto específico de las imágenes y los objetivos del análisis. En
+general, la combinación de CLAHE con Canny ha demostrado ser efectiva
+para resaltar bordes importantes, mientras que la congruencia de fase
+ofrece una alternativa prometedora para la detección de detalles finos.
+
+Dentro del contexto de nuestro pipeline de detección de señales de tráfico,
+estos hallazgos nos han guiado en la elección de técnicas de preprocesamiento,
+aunque ha sido necesario recurrir a otros métodos adicionales para lograr una
+detección robusta y precisa de estas señales. Se verá en BT2.
+
+\section*{Uso de IA}
+
+Para la elaboración de este trabajo se ha utilizado IA conversacional
+para asistir en la elaboración de código y entendimiento de los
+algoritmos implementados.
+
+\printbibliography
+
+\end{document}
