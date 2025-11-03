@@ -102,7 +102,7 @@
     \textbf{Características:}
     \begin{itemize}
       \item Conversión a imagen binaria
-      \item Píxeles > umbral $\rightarrow$ blanco (255)
+      \item Píxeles $\ge$ umbral $\rightarrow$ blanco (255)
       \item Píxeles $\leq$ umbral $\rightarrow$ negro (0)
       \item Implementación en C
       \item Complejidad: $O(nm)$
@@ -283,8 +283,6 @@
     \includegraphics[width=0.75\textwidth]{figures/phase_clahe_comparison_grid.png}
     \caption{CLAHE puede introducir ruido en congruencia de fase}
   \end{figure}
-  
-  \textbf{Observación:} Congruencia de fase funciona mejor sin CLAHE
 \end{frame}
 
 \begin{frame}{Canny vs. Congruencia de Fase}
@@ -296,7 +294,7 @@
   
   \begin{itemize}
     \item \textbf{Congruencia de Fase:} Más detalles finos y bordes débiles
-    \item \textbf{Canny + CLAHE:} Más robusto y menos sensible al ruido
+    \item \textbf{Canny + CLAHE + OTSU:} Más robusto y menos sensible al ruido
   \end{itemize}
 \end{frame}
 
