@@ -1,0 +1,115 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.2 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated by
+% biber as required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+
+\refsection{0}
+  \datalist[entry]{nty/global//global/global}
+    \entry{alibeigi2023zod}{inproceedings}{}
+      \name{author}{10}{}{%
+        {{hash=c8f958e6baa73bce2eb4307e2c5e820f}{%
+           family={Alibeigi},
+           familyi={A\bibinitperiod},
+           given={Mina},
+           giveni={M\bibinitperiod}}}%
+        {{hash=916ccd73b9f841642dbd959ba6cbeea2}{%
+           family={Ljungbergh},
+           familyi={L\bibinitperiod},
+           given={William},
+           giveni={W\bibinitperiod}}}%
+        {{hash=461eae0d129beb330730476757be050a}{%
+           family={Tonderski},
+           familyi={T\bibinitperiod},
+           given={Adam},
+           giveni={A\bibinitperiod}}}%
+        {{hash=ae3e0db4fe82613eea69fd2f3a9d43cf}{%
+           family={Hess},
+           familyi={H\bibinitperiod},
+           given={Georg},
+           giveni={G\bibinitperiod}}}%
+        {{hash=6cef019678289ad9b89fca4cd3a9ee44}{%
+           family={Lilja},
+           familyi={L\bibinitperiod},
+           given={Adam},
+           giveni={A\bibinitperiod}}}%
+        {{hash=e0b9ed7c841c39b6c58d4642a5e061c2}{%
+           family={Lindström},
+           familyi={L\bibinitperiod},
+           given={Carl},
+           giveni={C\bibinitperiod}}}%
+        {{hash=dae1a3ddb52c2e5cd433d990364d2387}{%
+           family={Motorniuk},
+           familyi={M\bibinitperiod},
+           given={Daria},
+           giveni={D\bibinitperiod}}}%
+        {{hash=13a6cf23c90a4e25b7b945582325d5e6}{%
+           family={Fu},
+           familyi={F\bibinitperiod},
+           given={Junsheng},
+           giveni={J\bibinitperiod}}}%
+        {{hash=6a73d26ccd108bedfc81705b1bdfaa2f}{%
+           family={Widahl},
+           familyi={W\bibinitperiod},
+           given={Jenny},
+           giveni={J\bibinitperiod}}}%
+        {{hash=a19caf50a1cdd040b28957276c2e873c}{%
+           family={Petersson},
+           familyi={P\bibinitperiod},
+           given={Christoffer},
+           giveni={C\bibinitperiod}}}%
+      }
+      \strng{namehash}{b309d0b51a4935d710a43a22a42ea8fe}
+      \strng{fullhash}{dd8c261f1ba9f4387c80008942d8cf43}
+      \strng{bibnamehash}{b309d0b51a4935d710a43a22a42ea8fe}
+      \strng{authorbibnamehash}{b309d0b51a4935d710a43a22a42ea8fe}
+      \strng{authornamehash}{b309d0b51a4935d710a43a22a42ea8fe}
+      \strng{authorfullhash}{dd8c261f1ba9f4387c80008942d8cf43}
+      \field{sortinit}{A}
+      \field{sortinithash}{2f401846e2029bad6b3ecc16d50031e2}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)}
+      \field{note}{Available at: \url{https://zod.zenseact.com/frames/}}
+      \field{title}{Zenseact Open Dataset: A large‐scale and diverse multimodal dataset for autonomous driving}
+      \field{year}{2023}
+    \endentry
+    \entry{wikipedia_hsv_modelo_color}{misc}{}
+      \name{author}{1}{}{%
+        {{hash=b6aea1a416c89509a7df1cbb69249cb6}{%
+           family={{Wikipedia contributors}},
+           familyi={W\bibinitperiod}}}%
+      }
+      \strng{namehash}{b6aea1a416c89509a7df1cbb69249cb6}
+      \strng{fullhash}{b6aea1a416c89509a7df1cbb69249cb6}
+      \strng{bibnamehash}{b6aea1a416c89509a7df1cbb69249cb6}
+      \strng{authorbibnamehash}{b6aea1a416c89509a7df1cbb69249cb6}
+      \strng{authornamehash}{b6aea1a416c89509a7df1cbb69249cb6}
+      \strng{authorfullhash}{b6aea1a416c89509a7df1cbb69249cb6}
+      \field{sortinit}{W}
+      \field{sortinithash}{4315d78024d0cea9b57a0c6f0e35ed0d}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://es.wikipedia.org/wiki/Modelo_de_color_HSV}}
+      \field{note}{Accedido: 3 noviembre 2025}
+      \field{title}{Modelo de color {HSV}}
+      \field{year}{—}
+    \endentry
+  \enddatalist
+  \missing{kadane}
+\endrefsection
+\endinput
+
