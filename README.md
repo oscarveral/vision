@@ -51,7 +51,7 @@ pip install -e .
 uv pip install -e .
 ```
 
-- (Opcional) Compilar librerias C.
+- Compilar librerias C.
 ```bash
 cd src/dgst/filters/ffi
 make
