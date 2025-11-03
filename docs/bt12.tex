@@ -10,23 +10,20 @@
 \usepackage{microtype}
 \usepackage{csquotes}
 \usepackage[spanish]{babel}
-\usepackage[style=ieee]{biblatex}
+\usepackage{cite}
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage{caption,subcaption}
 \usepackage{booktabs}
 \usepackage[hidelinks]{hyperref}
-%\usepackage{cleveref}
-%\usepackage{siunitx}
+
 \lstset{
     basicstyle=\ttfamily\small,
     keywordstyle=\color{blue},
     commentstyle=\color{gray},
     breaklines=true
 }
-
-\addbibresource{references.bib}
-
+ 
 \makeatletter
 % allow a subtitle
 \providecommand\@subtitle{}
@@ -137,7 +134,7 @@ aporta un nuevo enfoque quizás más alejado de los datasets
 tradicionales tomados en Estados Unidos o Asia.
 
 Dado que el dataset es muy grande, en este documento se trabajará con
-un subconjunto reducido ubicado en \texttt{/images/bt1}. Además, dado
+un subconjunto reducido ubicado en \texttt{notebooks/images/bt1}. Además, dado
 que la estructura del dataset es muy regular, en lo que respecta a la
 organización de las imágenes junto a sus metadatos, se ha
 implementado un cargador que permite cargar las imágenes y sus
@@ -233,7 +230,7 @@ en el resto del pipeline.
 Tal y como su nombre indica, nuestro pipeline de procesamiento
 requerirá que la imagen se encuentre en escala de grises para poder
 aplicar ciertos filtros u operaciones. Para ello, en el procesador se
-pone a disposición el filtro de grises proporcionado por OpenCV.
+pone a disposición el filtro de grises proporcionado por OpenCV \cite{opencv_library}.
 
 \begin{figure}[H]
   \centering
@@ -994,7 +991,7 @@ implementado mediante el método \texttt{get\_line\_support} de la clase Feature
     \item Se identifica el segmento maximal con densidad que supere un umbral dado.
 \end{enumerate}
 
-Para llevar a cabo el último paso, hemos utilizado una versión adaptada del Algoritmo de Kadane \cite{kadane}, un algoritmo de programación dinámica que resuelve el 
+Para llevar a cabo el último paso, hemos utilizado una versión adaptada del Algoritmo de Kadane \cite{singhal2018kadane}, un algoritmo de programación dinámica que resuelve el 
 problema \textbf{Maximum Subarray Problem} de encontrar un subarray de suma máxima. Los pasos de esta adaptación son, partiendo de una serie de puntos en 1D (proyecciones sobre la recta):
 
 \begin{enumerate}
@@ -1255,6 +1252,7 @@ Aun comenzando con 300 inliers (lo que correspondería a más o menos un tercio 
 
 Se ha utilizado IA conversacional para asistencia en la elaboración de código y en la comprensión de los algoritmos. Todo el contenido generado fue revisado y adaptado por los autores.
 
-%\printbibliography
+\bibliographystyle{ieeetr}
+\bibliography{references}
 
 \end{document}
