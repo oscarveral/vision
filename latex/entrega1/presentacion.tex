@@ -1,0 +1,358 @@
+\documentclass{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{hyperref}
+
+\title{Visión Artificial}
+\subtitle{BT1 y BT2}
+\author[Gallego \& Vera]{Juan Diego Gallego Nicolás \\ Óscar Vera López}
+\date{\today}
+\institute{Universidad de Murcia}
+
+\begin{document}
+
+\frame{\titlepage}
+
+\begin{frame}{Contenido}
+  \tableofcontents
+\end{frame}
+
+\section{BT1: Procesamiento de Imagen Básico}
+\subsection{Dataset}
+
+\begin{frame}{Dataset: Zenseact Frames (ZOD)}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Características:}
+    \begin{itemize}
+      \item 100.000 imágenes etiquetadas
+      \item Cámaras frontales de vehículos
+      \item Diversas condiciones de iluminación
+      \item 14 países de la UE
+      \item Sensores adicionales: LiDAR, radar
+    \end{itemize}
+    
+    \column{0.5\textwidth}
+    \begin{figure}
+      \includegraphics[width=\textwidth]{figures/dataset_grid.png}
+      \caption{Muestra del dataset}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Regiones de Interés (ROIs)}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.8\textwidth]{figures/rois_visualization.png}
+    \caption{Visualización de ROIs con señales de tráfico detectadas}
+  \end{figure}
+\end{frame}
+
+\subsection{Procesamiento de Imágenes}
+
+\subsubsection{Corrección de Distorsión}
+
+\begin{frame}{Corrección de Distorsión Ojo de Pez}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Algoritmo Kannala-Brandt:}
+    \begin{itemize}
+      \item Utiliza parámetros de calibración
+      \item Mapeo de píxeles distorsionados
+      \item Implementado en C
+      \item Complejidad: $O(nm)$
+    \end{itemize}
+    
+    \column{0.5\textwidth}
+    \begin{figure}
+      \includegraphics[width=\textwidth]{figures/distortion_correction.png}
+      \caption{Antes y después de la corrección}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\subsubsection{Filtros Básicos}
+
+\begin{frame}{Filtro de Escala de Grises}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Características:}
+    \begin{itemize}
+      \item Conversión RGB a luminancia
+      \item Implementación en C
+      \item Complejidad: $O(nm)$
+    \end{itemize}
+    
+    \column{0.5\textwidth}
+    \begin{figure}
+      \includegraphics[width=\textwidth]{figures/grayscale_filter.png}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Filtro de Umbralización}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Características:}
+    \begin{itemize}
+      \item Conversión a imagen binaria
+      \item Píxeles > umbral $\rightarrow$ blanco (255)
+      \item Píxeles $\leq$ umbral $\rightarrow$ negro (0)
+      \item Implementación en C
+      \item Complejidad: $O(nm)$
+    \end{itemize}
+    
+    \column{0.5\textwidth}
+    \begin{figure}
+      \includegraphics[width=\textwidth]{figures/threshold_filter.png}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\subsubsection{Filtros de Suavizado}
+
+\begin{frame}{Filtro de Caja (Box Filter)}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Características:}
+    \begin{itemize}
+      \item Promedio simple de vecindario
+      \item Implementación en C
+      \item Optimización con sumas parciales
+      \item Complejidad: $O(nm)$
+      \item Kernel de tamaño impar
+    \end{itemize}
+    
+    \column{0.5\textwidth}
+    \begin{figure}
+      \includegraphics[width=\textwidth]{figures/box_filter.png}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Filtro Gaussiano}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Características:}
+    \begin{itemize}
+      \item Peso gaussiano en vecindario
+      \item Preserva bordes mejor que Box
+      \item Implementación en C
+      \item Usa propiedad de separabilidad
+      \item Tamaño de kernel: $k=6\sigma+1$ (impar)
+      \item Complejidad: $O(nm \times (6\sigma+1))$
+    \end{itemize}
+    
+    \column{0.5\textwidth}
+    \begin{figure}
+      \includegraphics[width=\textwidth]{figures/gaussian_filter.png}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\subsubsection{Detección de Bordes}
+
+\subsubsection{Detección de Bordes}
+
+\begin{frame}{Filtro de Canny}
+    \textbf{Pasos del algoritmo:}
+    \begin{itemize}
+      \item Reducción de ruido
+      \item Detección de gradientes
+      \item Supresión de no-máximos
+      \item Umbralización histéresis
+    \end{itemize}
+    
+    \vspace{0.5cm}
+    \textbf{Implementación en C}
+\end{frame}
+
+\begin{frame}{Resultado: Filtro de Canny}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/canny_filter.png}
+    \caption{Bordes detectados con el filtro de Canny}
+  \end{figure}
+\end{frame}
+
+\subsubsection{Filtros Avanzados}
+
+\begin{frame}{Congruencia de Fase}
+    \textbf{Características:}
+    \begin{itemize}
+      \item Basado en transformada de Fourier
+      \item Analiza fase en lugar de amplitud
+      \item Resalta bordes débiles
+      \item Implementaciones en C y Python
+      \item Detecta características importantes no evidentes en el dominio espacial
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Resultado: Congruencia de Fase}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/phase_congruency_filter.png}
+    \caption{Detección de bordes con congruencia de fase}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{Congruencia de Fase + Umbralización}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/phase_congruency_thresholded.png}
+    \caption{Bordes detectados con congruencia de fase y umbralización}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{Umbralización de Otsu}
+    \textbf{Método de Otsu:}
+    \begin{itemize}
+      \item Umbralización automática
+      \item Minimiza varianza intra-clase
+      \item Determina umbral óptimo analizando la distribución de niveles de gris
+      \item No requiere parámetros manuales
+      \item Implementación con OpenCV
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Resultado: Umbralización de Otsu}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/otsu_threshold.png}
+    \caption{Imagen umbralizada con el método de Otsu}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{CLAHE: Contrast Limited Adaptive Histogram Equalization}
+    \textbf{Ventajas:}
+    \begin{itemize}
+      \item Mejora contraste localmente
+      \item Divide imagen en pequeñas regiones (tiles)
+      \item Aplica ecualización de histograma a cada región independientemente
+      \item Limita amplificación de ruido (Contrast Limited)
+      \item Mejor que ecualización global
+      \item Implementación con OpenCV
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Resultado: CLAHE en Color}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/clahe_color.png}
+    \caption{Mejora de contraste con CLAHE en imagen a color}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{CLAHE en Escala de Grises}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/clahe_grayscale_comparison.png}
+    \caption{Comparación: original vs. CLAHE en escala de grises}
+  \end{figure}
+\end{frame}
+
+\subsection{Análisis y Combinaciones}
+
+\begin{frame}{CLAHE + Otsu}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/clahe_otsu_comparison_grid.png}
+    \caption{Mejora en la distinción de elementos con CLAHE antes de Otsu}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{Combinaciones con Canny}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/canny_clahe_otsu_comparison_grid.png}
+    \caption{Comparación de preprocesados con Canny}
+  \end{figure}
+  
+  \textbf{Conclusión:} CLAHE mejora significativamente la detección de bordes
+\end{frame}
+
+\begin{frame}{Congruencia de Fase + CLAHE}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.75\textwidth]{figures/phase_clahe_comparison_grid.png}
+    \caption{CLAHE puede introducir ruido en congruencia de fase}
+  \end{figure}
+  
+  \textbf{Observación:} Congruencia de fase funciona mejor sin CLAHE
+\end{frame}
+
+\begin{frame}{Canny vs. Congruencia de Fase}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/phase_vs_canny_comparison.png}
+    \caption{Comparación directa entre ambos métodos}
+  \end{figure}
+  
+  \begin{itemize}
+    \item \textbf{Congruencia de Fase:} Más detalles finos y bordes débiles
+    \item \textbf{Canny + CLAHE:} Más robusto y menos sensible al ruido
+  \end{itemize}
+\end{frame}
+
+\subsection{Benchmarks}
+
+\begin{frame}{Rendimiento: Filtros de Suavizado}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/benchmark_smoothing_filters.png}
+    \caption{Comparativa FFI vs. OpenCV}
+  \end{figure}
+  
+  \begin{itemize}
+    \item \textbf{Box Filter:} Nuestra implementación hasta 3x más rápida en ciertos casos
+    \item \textbf{Gaussian Filter:} OpenCV gana usando transformadas de Fourier
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Calidad: Suavizado FFI vs. OpenCV}
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/smoothing_ffi_vs_smoothing_opencv_comparison.png}
+    \caption{Diferencias cualitativas mínimas}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{Rendimiento: Canny}
+  \textbf{Comparación de tiempos (Intel i7-10750H):}
+  \begin{itemize}
+    \item \textbf{OpenCV:} $\sim$0.5 ms (media)
+    \item \textbf{Nuestra implementación:} $\sim$3.5 ms (media)
+  \end{itemize}
+  
+  \vspace{0.5cm}
+  
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.7\textwidth]{figures/canny_ffi_vs_opencv_comparison.png}
+    \caption{Resultados cualitativos comparables}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{Rendimiento: Congruencia de Fase}
+  \begin{center}
+    \textbf{Observaciones:}
+    \begin{itemize}
+      \item Implementación en C más lenta que Python/NumPy
+      \item Mucho más lento que Canny
+      \item No recomendado para aplicaciones en tiempo real
+      \item Útil para análisis offline donde la calidad es prioritaria
+    \end{itemize}
+    
+    \vspace{0.5cm}
+    
+    \textbf{Recomendación:} Usar versión Python con NumPy y Canny para tiempo real
+  \end{center}
+\end{frame}
+
+\end{document}
