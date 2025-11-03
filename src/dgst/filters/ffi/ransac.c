@@ -59,9 +59,14 @@ int32_t ransac_line_fitting(
         return -4;
     }
 
-    // RANSAC loop.
-    srand((unsigned) time(NULL));
+    
+    static int _ransac_seeded_line = 0;
+    if (!_ransac_seeded_line) {
+        srand((unsigned) time(NULL));
+        _ransac_seeded_line = 1;
+    }
 
+    // RANSAC loop.
     size_t best_inlier_count = 0;
     float best_a = 0.0f, best_b = 0.0f, best_c = 0.0f;
 
@@ -232,8 +237,15 @@ int32_t ransac_circle_fitting(
         return -4;
     }
 
+   
+    static int _ransac_seeded_circle = 0;
+    if (!_ransac_seeded_circle) {
+        srand((unsigned) time(NULL));
+        _ransac_seeded_circle = 1;
+    }
+
+     
     // RANSAC loop.
-    srand((unsigned) time(NULL));
 
     float best_inlier_ratio = 0.0f;
     float best_cx = 0.0f, best_cy = 0.0f, best_r = 0.0f;
