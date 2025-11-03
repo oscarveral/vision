@@ -1,0 +1,1260 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{csquotes}
+\usepackage[spanish]{babel}
+\usepackage[style=ieee]{biblatex}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption,subcaption}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+%\usepackage{cleveref}
+%\usepackage{siunitx}
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    breaklines=true
+}
+
+\addbibresource{references.bib}
+
+\makeatletter
+% allow a subtitle
+\providecommand\@subtitle{}
+\newcommand{\subtitle}[1]{\gdef\@subtitle{#1}}
+
+% provide a way to set two author emails
+\providecommand\@emailone{email1@example.com}
+\providecommand\@emailtwo{email2@example.com}
+\newcommand{\authoremails}[2]{\gdef\@emailone{#1}\gdef\@emailtwo{#2}}
+
+% default subtitle and emails (editable)
+\subtitle{Máster en Inteligencia Artificial - Universidad de Murcia}
+\authoremails{jdiego.gallego@um.es}{oscar.veral@um.es}
+
+% Redefine \maketitle to produce a dedicated titlepage
+\renewcommand{\maketitle}{%
+    \begin{titlepage}
+        \centering
+        \thispagestyle{empty}
+        \vspace*{2.5cm}
+        {\Huge\bfseries\@title\par}
+        \vspace{1cm}
+        {\Large\itshape\@subtitle\par}
+        \vspace{3cm}
+        {\large
+            \begin{tabular}{c}
+                \@author
+            \end{tabular}\par
+        }
+        \vspace{0.6cm}
+        {\small
+            \begin{tabular}{c}
+                \texttt{\@emailone} \\[0.8ex]
+                \texttt{\@emailtwo}
+            \end{tabular}\par
+        }
+        \vfill
+        {\large \@date\par}
+    \end{titlepage}%
+}
+\makeatother
+
+\begin{document}
+
+\title{Informe BT1 y BT2\\[1ex]\large Visión Artificial}
+\author{Juan Diego Gallego Nicolás \and Óscar Vera López}
+\date{\today}
+
+\maketitle
+
+\renewcommand{\contentsname}{Índice}
+\setcounter{tocdepth}{3}
+\tableofcontents
+\clearpage
+
+\section*{Introducción}
+En este informe se detallan las implementaciones y resultados obtenidos en las tareas de procesamiento de imágenes realizadas en el contexto de los bloques de trabajo BT1 y BT2.
+Cada bloque de técnicas recibe su propio apartado. 
+Todas las referencias a código fuente, notebooks y datos se encuentran en el repositorio de GitHub asociado al proyecto: \href{https://github.com/oscarveral/vision}{vision}
+
+\section*{Items cubiertos}
+\begin{itemize}
+  \item \textbf{BT1d (5\%x3)}. Implementación de filtros de
+    procesamiento de imágenes básicos y avanzados.
+  \item \textbf{BT1ewc (10\%)}. Implementación manual de algoritmos
+    de procesamiento de imágenes en C y Python.
+  \item \textbf{BT1f (5\%)}. Segmentación-Conteo HSV.
+  \item \textbf{BT1h (5\%)}. Rectificación planar. Deshacer la
+    distorsión de la lente ojo de pez.
+  \item \textbf{BT1o (5\%)}. Umbralizado dinámico con Otsu y CLAHE.
+  \item \textbf{BT1p (5\%)}. Gráficas de resultados y comparativas
+    de rendimiento.
+  \item \textbf{BT2a (5\%)}. RANSAC/HT para rectas.
+  \item \textbf{BT2c (5\%)}. Estudio empírico de la convergencia.
+  \item \textbf{BT2d (5\%)}. RANSAC/HT para círculos.
+  \item \textbf{BT2e (5\%)}. Detección multi-instancia.
+\end{itemize}
+
+\section*{Items cubiertos parcialmente}
+\begin{itemize}
+  \item \textbf{BT2g (5\%)}. Modelo geométrico más complejo: por la implementación de detección de segmentos a partir de la detección de rectas.
+  \item \textbf{BT2i (10\%)}. Programación HT/RANSAC manual: se ha implementado RANSAC desde cero en C, pero no se ha llegado a comparar con funciones de librería.
+\end{itemize}
+
+\clearpage
+
+\section{BT1: Procesamiento de imagen básico}
+
+A lo largo de esta sección se explican las técnicas implementadas y
+se muestran ejemplos de su aplicación a imágenes de prueba. Se
+abordan técnicas como la corrección de distorsión de lentes, la
+conversión a escala de grises, el umbral de Otsu y el filtro CLAHE
+entre otras; definiéndose más adelante su aplicabilidad en nuestro
+pipeline de visión artificial orientado a la detección de señales de tráfico.
+
+\subsection{Dataset e imágenes}
+
+\subsubsection{Descripción del dataset e importación}
+
+El dataset que hemos seleccionado seleccionado es 
+Zenseact Frames (ZOD)~\cite{zod}, que contiene
+imágenes de cámaras frontales de vehículos en diversas condiciones de
+iluminación y clima. Cuenta con 100.000 imágenes etiquetadas para
+tareas de detección y segmentación de objetos, así como datos de
+sensores adicionales como LiDAR y radar. Además, las imágenes han
+sido tomadas en 14 países diferentes de la Unión Europea, lo que nos
+aporta un nuevo enfoque quizás más alejado de los datasets
+tradicionales tomados en Estados Unidos o Asia.
+
+Dado que el dataset es muy grande, en este documento se trabajará con
+un subconjunto reducido ubicado en \texttt{/images/bt1}. Además, dado
+que la estructura del dataset es muy regular, en lo que respecta a la
+organización de las imágenes junto a sus metadatos, se ha
+implementado un cargador que permite cargar las imágenes y sus
+etiquetas de forma sencilla dado su número de índice dentro del
+dataset y la raíz del mismo. A continuación, se muestran algunas
+imágenes representativas del dataset:
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/dataset_grid.jpg}
+  \caption{Grid de imágenes representativas del dataset ZOD (4x3)}
+  \label{fig:dataset_grid}
+\end{figure}
+
+\subsubsection{Visualización de regiones de interés}
+
+Además de cargar las imágenes, es importante visualizar las regiones
+de interés (ROIs) que contienen las señales de tráfico, esto nos
+servirá para verificar más adelante nuestro procesado de imágenes.
+Utilizando el cargador implementado, podemos cargar una imagen y sus
+ROIs asociadas, y luego dibujar las ROIs sobre la imagen para su visualización.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/rois_visualization.jpg}
+  \caption{Visualización de las regiones de interés (ROIs) en las
+  imágenes del dataset}
+  \label{fig:rois_visualization}
+\end{figure}
+
+Se puede observar como el etiquetado no es perfecto, ya que algunas
+señales no están completamente dentro de las regiones de interés
+(ROIs) definidas. Sin embargo, para los propósitos de esta práctica,
+consideraremos que las ROIs son suficientemente buenas para
+permitirnos más adelante analizar nuestra técnica de detección y
+reconocimiento de señales de tráfico.
+
+\subsection{Procesado de imágenes}
+
+En esta sección, cuando fuere necesario, utilizaremos $n$ y $m$ para
+referirnos a las dimensiones de una imagen y $k$ para el tamaño
+(lado) de un kernel de convolución.
+
+\subsubsection{La clase ImageProcessor}
+
+Para facilitar el procesado de imágenes, se ha implementado la clase
+\texttt{ImageProcessor}, que permite encadenar múltiples operaciones
+de procesado de imágenes de manera sencilla y modular. Esta clase
+utiliza el patrón de diseño ``Builder'', lo que permite añadir
+diferentes filtros y transformaciones a una imagen de forma fluida.
+Véanse los notebooks de ejemplo para más detalles.
+
+\subsubsection{Corrección de la distorsión}
+
+Obsérvese como la imagen original presenta la distorsión típica de
+una lente de ojo de pez. Como viene explicado en la web del dataset,
+estas cámaras pretenden maximizar el campo de visión de la cámara.
+Afortunadamente, el dataset incluye los parámetros de calibración de
+la cámara. Para corregir esta distorsión, es necesario aplicar el
+algoritmo de corrección de distorsión de Kannala-Brandt
+\cite{kannala2004}, que utiliza los parámetros de calibración para
+mapear los píxeles de la imagen distorsionada a sus posiciones
+correctas en una imagen sin distorsión. La implementación de este
+algoritmo implementado en C se encuentra en la función
+\texttt{kannala\_brandt\_undistort} del módulo
+\texttt{dgst/filters/ffi/kannala.c}. Tiene una complejidad espacial y
+temporal de $O(nm)$.
+
+\textit{Items de evaluación: \underline{\textbf{BT1h}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/distortion_correction.jpg}
+  \caption{Comparación entre imagen original con distorsión de ojo de
+  pez y la imagen corregida}
+  \label{fig:distortion_correction}
+\end{figure}
+
+Obsérvese que, aun manteniendo la resolución original de la imagen,
+la distorsión ha sido corregida satisfactoriamente, sacrificando
+únicamente una pequeña parte de la imagen en los bordes. Véase
+también como el salpicadero del coche ya no se ve curvado y que las
+líneas de la carretera son rectas en lugar de curvas. Usamos nuestra
+corrección de distorsión para también corregir las posiciones de las
+ROIs en la imagen, de forma que podamos seguir trabajando con ellas
+en el resto del pipeline.
+
+\subsubsection{Filtros básicos}
+
+\paragraph{Filtro de escala de grises}
+
+Tal y como su nombre indica, nuestro pipeline de procesamiento
+requerirá que la imagen se encuentre en escala de grises para poder
+aplicar ciertos filtros u operaciones. Para ello, en el procesador se
+pone a disposición el filtro de grises proporcionado por OpenCV.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/grayscale_filter.jpg}
+  \caption{Comparación entre imagen original a color y en escala de grises}
+  \label{fig:grayscale_filter}
+\end{figure}
+
+\paragraph{Filtro de umbralización}
+
+El filtro de umbralización es una técnica de procesamiento de
+imágenes que convierte una imagen en escala de grises en una imagen
+binaria. Esto se logra estableciendo un umbral, de manera que todos
+los píxeles con valores por encima del umbral se establecen en blanco
+(255), y todos los píxeles con valores por debajo del umbral se
+establecen en negro (0). Este proceso es útil para resaltar
+características específicas de la imagen y facilitar su análisis.
+Nuestra implementación sencilla en C se encuentra en el módulo
+\texttt{src/dgst/filters/ffi/threshold.c}. Se asume que la imagen de
+entrada ya está en blanco y negro. Tiene una complejidad de $O(nm)$.
+
+\textit{Items de evaluación: \underline{\textbf{BT1d}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/threshold_filter.jpg}
+  \caption{Comparación entre imagen original y umbralizada}
+  \label{fig:threshold_filter}
+\end{figure}
+
+\subsubsection{Filtros de suavizado}
+
+Nuestro pipeline requerirá de suavizado de imágenes para reducir el
+ruido y mejorar la calidad de los resultados.
+
+\paragraph{Filtro de caja.}
+
+El filtro de caja o de medias es un método simple y efectivo para
+suavizar imágenes. Este filtro reemplaza el valor de cada píxel por
+el promedio de los valores de los píxeles en su vecindario cuadrado. Esto
+ayuda a reducir el ruido y los detalles finos en la imagen, lo que
+puede ser beneficioso para tareas de análisis de imágenes
+posteriores. Nuestra implementación en C se encuentra en el módulo
+\texttt{src/dgst/filters/ffi/box.c}. Nos valemos de una optimización
+utilizando sumas parciales para incrementar el rendimiento y
+conseguir una complejidad de $O(nm)$ en tiempo y en memoria. Se
+requiere que la imagen de entrada tenga una sola dimensión (blanco y
+negro). El tamaño del filtro proporcionado debe ser impar y mayor que cero.
+
+\textit{Items de evaluación: \underline{\textbf{BT1d}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/box_filter.jpg}
+  \caption{Comparación entre imagen original y filtrada con filtro de caja}
+  \label{fig:box_filter}
+\end{figure}
+
+\paragraph{Filtro gaussiano.}
+
+El filtro gaussiano es otro método popular para el suavizado de
+imágenes. A diferencia del filtro de caja, que utiliza un promedio
+simple en las direcciones horizontal y vertical, el filtro gaussiano aplica una función de promediado circular a
+su vecindario. Esto significa que los
+píxeles más cercanos al central tienen un mayor impacto en el
+valor suavizado que los píxeles más lejanos. Este enfoque proporciona
+un acabado más natural y preserva las características importantes de la imagen
+mientras se reduce el ruido. Nuestra implementación en C se encuentra
+en el módulo \texttt{src/dgst/filters/ffi/gaussian.c}. Al igual que con
+el filtro de caja, se requiere que la imagen de entrada tenga una
+sola dimensión (blanco y negro). El tamaño del kernel gaussiano se
+calcula en función de la desviación estándar deseada siguiendo la
+relación $k=6\sigma+1$, con $k$ siempre impar. Utilizando la
+propiedad de separabilidad de este filtro, conseguimos una
+complejidad de $O(nm\times(6\sigma+1))$ en espacio y memoria.
+
+\textit{Items de evaluación: \underline{\textbf{BT1d}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/gaussian_filter.jpg}
+  \caption{Comparación entre imagen original y filtrada con filtro gaussiano}
+  \label{fig:gaussian_filter}
+\end{figure}
+
+\subsubsection{Filtros de detección de bordes}
+
+El objetivo general de este proyecto es la detección de señales de
+tráfico, lo que implicará detección de formas y por tanto, la
+necesidad de identificar los bordes de estas señales en la imagen.
+Para esto será necesario aplicar filtros de detección de bordes que
+resalten las transiciones en la intensidad de los píxeles.
+
+\paragraph{Filtro de Canny.}
+
+Este algoritmo se basa en una serie de pasos que incluyen la
+reducción de ruido, la detección de gradientes y la supresión de
+no-máximos, lo que permite identificar bordes de manera efectiva. La
+implementación en C se encuentra en el módulo
+\texttt{src/dgst/filters/ffi/canny.c}. Al igual que con los filtros
+anteriores, se requiere que la imagen de entrada tenga una sola
+dimensión (blanco y negro). Además, necesita un suavizado previo para
+poder calcular los gradientes de forma satisfactoria.
+
+\textit{Items de evaluación: \underline{\textbf{BT1d}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/canny_filter.jpg}
+  \caption{Comparación entre imagen original y bordes detectados con Canny}
+  \label{fig:canny_filter}
+\end{figure}
+
+\subsubsection{Filtros avanzados}
+
+En esta sección, exploraremos filtros más avanzados que pueden
+mejorar aún más la detección de bordes y la calidad de las imágenes.
+Hemos querido buscar técnicas más avanzadas para comparar su
+rendimiento con los filtros tradicionales que hemos utilizado hasta ahora.
+
+\paragraph{Filtro de congruencia de fase. }
+
+El filtro de congruencia de fase es una técnica avanzada que se
+utiliza para la detección de bordes y la mejora de imágenes. Este
+método se basa en la transformada de Fourier y se centra en la el conjunto de fases
+de la imagen en lugar de la amplitud. Al hacerlo, puede resaltar
+características importantes de la imagen que pueden no ser evidentes
+en el dominio espacial. En este caso, disponemos de 2
+implementaciones, una en C y otra en Python con numpy, en los
+ficheros \texttt{src/dgst/filters/ffi/phase.c} y
+\texttt{src/dgst/filters/python/phase.py} respectivamente.
+
+\textit{Items de evaluación: \underline{\textbf{BT1d}},
+\underline{\textbf{BT1ewc}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/phase_congruency_filter.jpg}
+  \caption{Aplicación del filtro de congruencia de fase}
+  \label{fig:phase_congruency_filter}
+\end{figure}
+
+Obsérvese como el filtro de congruencia es capaz de resaltar los
+bordes de forma muy efectiva, pudiéndose distinguir todos los
+contornos de la imagen, incluyendo las señales de tráfico que nos
+interesan. Combinándose con el filtro de umbralización, podemos
+obtener una imagen binaria que resalta los bordes detectados de
+manera muy clara.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/phase_congruency_thresholded.jpg}
+  \caption{Bordes detectados con congruencia de fase aplicando umbralización}
+  \label{fig:phase_congruency_thresholded}
+\end{figure}
+
+Uno de los inconvenientes es la generación de artefactos en zonas
+homogéneas de la imagen, lo que puede dificultar el análisis
+posterior. Sin embargo, estos artefactos pueden ser mitigados
+mediante el refinamiento de los parámetros del filtro y la aplicación
+de técnicas adicionales de pre y post-procesamiento.
+
+\paragraph{Filtro de umbralización automática de Otsu.}
+
+El método de umbralización automática de Otsu es una técnica avanzada
+que permite determinar un umbral óptimo para convertir una imagen en
+escala de grises en una imagen binaria. A diferencia del umbral fijo,
+que requiere la selección manual de un valor, el método de Otsu
+analiza la distribución de los niveles de gris en la imagen y calcula
+el umbral que minimiza la varianza intra-clase, es decir, la varianza
+dentro de las regiones de fondo y primer plano. Nuestra
+implementación en Python se encuentra en el fichero
+\texttt{src/dgst/filters/python/otsu.py} utilizando OpenCV.
+
+\textit{Items de evaluación: \underline{\textbf{BT1o}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/otsu_threshold.jpg}
+  \caption{Umbralización automática de Otsu aplicada a la imagen}
+  \label{fig:otsu_threshold}
+\end{figure}
+
+\paragraph{Filtro CLAHE (Contrast Limited Adaptive Histogram Equalization).}
+
+El filtro CLAHE (Contrast Limited Adaptive Histogram Equalization) es
+una técnica avanzada de mejora de contraste que se utiliza para
+mejorar la visibilidad de los detalles en imágenes con bajo
+contraste. A diferencia de la ecualización de histograma global, que
+puede amplificar el ruido en áreas homogéneas, CLAHE divide la imagen
+en pequeñas regiones (o ``tiles'') y aplica la ecualización de
+histograma a cada una de ellas de manera independiente. Además,
+limita el contraste para evitar la amplificación excesiva del ruido.
+Nuestra implementación en Python se encuentra en el fichero
+\texttt{dgst/filters/python/clahe.py} utilizando OpenCV.
+
+\textit{Items de evaluación: \underline{\textbf{BT1o}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/clahe_color.jpg}
+  \caption{Aplicación del filtro CLAHE a imagen en color}
+  \label{fig:clahe_color}
+\end{figure}
+
+En color se aprecia una mejora en la imagen pero no es tan evidente
+como en la imagen en escala de grises.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/clahe_grayscale_comparison.jpg}
+  \caption{Comparación entre imagen en escala de grises y con CLAHE aplicado}
+  \label{fig:clahe_grayscale_comparison}
+\end{figure}
+
+\subsection{Análisis y aplicación de filtros}
+
+Una vez expuestos los filtros sobre los que nos basamos, vamos a
+explorar cómo hacer combinaciones de los mismos para obtener los
+mejores resultados posibles en la tarea de detección de bordes.
+Empezaremos aplicando CLAHE a una imagen antes de realizar un
+umbralizado de Otsu y veremos cómo afecta esta modificación del
+contraste a la detección de elementos de la imagen.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/clahe_otsu_comparison_grid.jpg}
+  \caption{Comparación entre escala de grises y CLAHE aplicando
+  umbralizado de Otsu}
+  \label{fig:clahe_otsu_comparison}
+\end{figure}
+
+Apréciese como el contraste dinámico, aplicado por tiles locales en
+las imágenes, produce la suficiente distinción en los niveles de gris
+de las imágenes para permitir que el umbralizado de Otsu haga una
+mejor distinción de los elementos de la misma. El siguiente paso
+lógico es preguntarse si esto permite realizar una mejor detección de
+bordes en la imagen usando el clásico filtro de Canny. Para ello
+aplicaremos primero un suavizado gaussiano para reducir el ruido, y
+luego aplicaremos Canny tanto a la imagen original como a la imagen
+procesada con CLAHE y con CLAHE y Otsu.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/canny_clahe_otsu_comparison_grid.jpg}
+  \caption{Comparación de detección de bordes con Canny aplicando
+  diferentes combinaciones de preprocesado}
+  \label{fig:canny_clahe_otsu_comparison}
+\end{figure}
+
+Se observa como la aplicación de CLAHE mejora significativamente la
+detección de bordes en la imagen, resaltando las señales de tráfico y
+otros elementos importantes. La combinación de CLAHE con el
+umbralizado de Otsu también muestra mejoras, aunque en este caso, la
+diferencia no es tan pronunciada como con CLAHE solo e introduce
+mucho ruido que en ciertas situaciones podría dificultar la detección
+de elementos. Para reducirlo, una opción es incrementar el suavizado
+gaussiano previo a la detección de bordes.
+
+Mirando en otra dirección, también es interesante explorar el
+rendimiento del filtro de congruencia de fase en comparación con los
+métodos tradicionales. Aplicando este filtro a la imagen original y a
+la imagen procesada con CLAHE, podemos observar cómo resalta los
+bordes de manera efectiva. Para ello, aplicamos un suavizado
+gaussiano previo para reducir el ruido y luego aplicamos el filtro de
+congruencia de fase y un umbralizado para obtener una imagen binaria
+de los bordes detectados.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/phase_clahe_comparison_grid.jpg}
+  \caption{Comparación entre congruencia de fase sin CLAHE y con
+  CLAHE (grid 3x2)}
+  \label{fig:phase_clahe_comparison}
+\end{figure}
+
+Curiosamente, utilizando CLAHE empeoran ligeramente los resultados al
+introducirse ruido adicional en la imagen. Esto se debe a que CLAHE
+modifica los niveles de gris de la imagen de manera local, lo que
+puede afectar negativamente al cálculo de la congruencia de fase. Por
+tanto, en este caso, parece que el filtro de congruencia de fase
+funciona mejor con la imagen original suavizada.
+
+Vamos ahora a comparar cualitativamente los resultados obtenidos con
+los diferentes métodos de detección de bordes que hemos explorado.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/phase_vs_canny_comparison.jpg}
+  \caption{Comparación directa entre Congruencia de Fase y Canny}
+  \label{fig:phase_vs_canny}
+\end{figure}
+
+En una comparativa entre nuestro filtro de congruencia de fase y el
+filtro de Canny con CLAHE, podemos observar que ambos métodos son
+capaces de detectar los bordes de manera efectiva. Sin embargo, el
+filtro de congruencia de fase tiende a resaltar más detalles finos y
+bordes débiles. Mientras, el filtro de Canny con CLAHE y Otsu
+proporciona una detección más robusta y menos sensible al ruido,
+habiendo reducido ese ruido introducido por la aplicación de Otsu
+mediante el incremento de la desviación en el filtro Gaussiano previo
+a la detección de bordes. La idoneidad de cada método dependerá del
+contexto específico en el que usemos las imágenes.
+
+\subsection{Rendimientos y comparativas}
+
+\subsubsection{Filtros de suavizado}
+
+Vamos a realizar un pequeño análisis de rendimiento de las diferentes
+implementaciones de los filtros que hemos desarrollado. En
+particular, nos centraremos en comparar el rendimiento de la
+implementación en C de los filtros de suavizado.
+
+\textit{Items de evaluación: \underline{\textbf{BT1p}}.}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/benchmark_smoothing_filters.jpg}
+  \caption{Gráficas de benchmark para filtros de suavizado: Box
+  Filter y Gaussian Filter en imágenes Lenna y Denis}
+  \label{fig:benchmark_smoothing}
+\end{figure}
+
+Dado que aplicamos una optimización de sumas parciales, para tamaños
+pequeños de filtro, obtenemos un rendimiento hasta de 0.6x respecto a
+OpenCV. No obstante, al incrementar el tamaño del filtro el
+rendimiento en OpenCV se degrada y gana nuestra implementación,
+obteniendo hasta un 3x en imágenes pequeñas. Sin embargo, en el
+filtro Gaussiano, debemos conceder la victoria (por el momento) a
+OpenCV, ya que internamente harán uso de algoritmos más complejos
+como transformadas de Fourier, que debido al alcance de esta
+asignatura, no hemos implementado. Por tanto OpenCV obtiene un mejor
+rendimiento en la mayoría, o totalidad según el hardware, de casos.
+
+También es necesario ver la diferencia cualitativa entre los
+suavizados para ver si la implementación en C es correcta. Como se
+observará, las diferencias son mínimas y se deben principalmente a
+diferencias internas en el manejo de bordes y algoritmos.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/smoothing_ffi_vs_smoothing_opencv_comparison.jpg}
+  \caption{Comparación cualitativa entre implementaciones FFI y
+  OpenCV de filtros Box y Gaussian (grid 2x3)}
+  \label{fig:smoothing_ffi_opencv}
+\end{figure}
+
+\subsubsection{Filtro de congruencia de fase}
+
+Respecto a la implementación del filtro de congruencia de fase en C
+frente a la implementación en Python con numpy, nuestros experimentos
+muestran que la versión en C es abismalmente más lenta que la versión
+de Python, por lo que omitiremos su uso en favor de la versión en
+Python, que ya se ha mostrado en secciones anteriores.
+
+En comparación con la detección de bordes con Canny, el filtro de
+congruencia de fase es considerablemente más lento, debido a la
+naturaleza computacionalmente intensiva de la transformada de Fourier
+y las operaciones asociadas. Por tanto, para aplicaciones en tiempo
+real o donde el rendimiento sea crítico, Canny sigue siendo la
+opción preferida.
+
+\subsubsection{Filtro de Canny}
+
+Al igual que con el suavizado, hemos comparado el rendimiento de
+nuestra implementación en C del filtro de Canny con la implementación de OpenCV.
+
+Como era de esperar, OpenCV obtiene un mejor rendimiento, tardando
+0.5ms de media en un
+procesador Intel i7-10750H Comet Lake, pero
+consideramos nuestra implementación suficientemente rápida para los
+propósitos de este proyecto, con un tiempo medio de 3.5ms.
+
+Cualitativamente, los resultados obtenidos con nuestra implementación
+son comparables a los de OpenCV, aunque pueden existir pequeñas
+diferencias debido a la elección de parámetros, suavizado previo y
+detalles de implementación. Por lo general, la implementación de
+OpenCV parece capaz de detectar bordes ligeramente más finos y precisos.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/canny_ffi_vs_opencv_comparison.jpg}
+  \caption{Comparación entre implementación FFI y OpenCV del filtro de Canny}
+  \label{fig:canny_ffi_opencv}
+\end{figure}
+
+\subsection{Conclusiones}
+
+Hemos explorado diversas técnicas de procesamiento de imágenes con el
+objetivo de mejorar la detección de bordes en imágenes de tráfico. A
+través de la implementación y análisis de filtros como CLAHE,
+umbralización de Otsu, filtro de Canny y congruencia de fase, hemos
+podido evaluar sus fortalezas y debilidades en diferentes
+combinaciones. A partir de nuestros experimentos, hemos concluido que
+la elección del filtro y su configuración dependen en gran medida del
+contexto específico de las imágenes y los objetivos del análisis. En
+general, la combinación de CLAHE con Canny ha demostrado ser efectiva
+para resaltar bordes importantes, mientras que la congruencia de fase
+ofrece una alternativa prometedora para la detección de detalles finos.
+
+Dentro del contexto de nuestro pipeline de detección de señales de tráfico,
+estos hallazgos nos han guiado en la elección de técnicas de preprocesamiento,
+aunque ha sido necesario recurrir a otros métodos adicionales para lograr una
+detección robusta y precisa de estas señales. Se verá en BT2.
+
+\clearpage
+\section{BT2 - Estimación robusta de parámtetros}
+
+En esta sección tratamos la detección de rectas y otras formas geométricas características en el ámbito de las señales
+de tráfico, candidatas idóneas sobre el papel para ser detectadas mediante técnicas de estimación robusta de parámetros
+vistas en la asignatura. 
+
+El conjunto de imágenes de prueba es el mismo que en BT1 al que se le ha aplicado un preprocesamiento consistente en:
+\begin{itemize}
+    \item Corrección de la distorsión de Kannala Brandt.
+    \item Reescalado por un factor de 0'5.
+    \item Aplicación de un filtro de medianas de 5x5 para reducir el ruido.
+\end{itemize}
+
+El escalado ha sido llevado a cabo mediante la función \texttt{cv2.resize()} de OpenCV con el método de interpolación 
+\texttt{INTER\_AREA}, ideal para reducciones. El resultado de este preprocesamiento se muestra en la Figura \ref{fig:bt2_preprocessed}.
+Las dimensiones finales de las imágenes son de 1924x1084 píxeles.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img00.jpg}
+        \caption{Imagen 0 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img01.jpg}
+        \caption{Imagen 1 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img02.jpg}
+        \caption{Imagen 2 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img03.jpg}
+        \caption{Imagen 3 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img04.jpg}
+        \caption{Imagen 4 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img05.jpg}
+        \caption{Imagen 5 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img06.jpg}
+        \caption{Imagen 6 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img07.jpg}
+        \caption{Imagen 7 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img08.jpg}
+        \caption{Imagen 8 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img09.jpg}
+        \caption{Imagen 9 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/pre_img10.jpg}
+        \caption{Imagen 10 preprocesada}
+    \end{subfigure}
+    \caption{Imágenes preprocesadas del conjunto ZOD para la detección de líneas de borde.}
+    \label{fig:bt2_preprocessed}
+\end{figure}
+
+\subsection{Detección de bordes}
+Para la detección de bordes hemos utilizado dos métodos diferentes. El primero de ellos es el ya explicado en la
+sección anterior basado en la detección de bordes de Canny. La segunda aproximación es una segmentación por color seguida
+por una dilatación. En ambos casos, vamos a hacer una transformación previa de la imagen al espacio de color HSV.
+
+\subsubsection{Espacio de color HSV}
+El espacio de color HSV (Hue, Saturation, Value) \cite{wikipedia_hsv_modelo_color} es un modelo de color que representa las imágenes de una manera más intuitiva que el espacio RGB. 
+En este modelo cada canal representa:
+
+\begin{itemize}
+    \item Hue (Matiz): es una escala circular que representa el tipo de color (rojo, verde, azul, etc.) y se mide en grados (0-360°), aunque en OpenCV se escala a un rango de 0 a 179.
+    \item Saturation (Saturación): representa la intensidad del color, donde 0 es un tono de gris y 255 es el color completo.
+    \item Value (Valor): representa el brillo del color. Es el clásico concepto de luminosidad, donde 0 es negro y 255 es el color más brillante.
+\end{itemize}
+
+Las señales de tráfico, al tener que ser fácilmente detectables por el ojo humano en diversas condiciones de iluminación y clima, se diseñan con colores brillantes y contrastantes. 
+Esto las hace ideales para ser segmentadas en el espacio de color HSV, donde los cambios en la iluminación afectan menos a la percepción del color.
+Identificamos que todas las principales señales cuentan con el color rojo o el azul, incluso aquellas que encontramos en obras viales que sustituyen el color blanco por amarillo.
+
+% vemos lado a lado h y s para las imagenes 0, 8 y 10
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.4\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/hue_img00.jpg}
+        \caption{Hue imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.4\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/sat_img00.jpg}
+        \caption{Saturación imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.4\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/hue_img08.jpg}
+        \caption{Hue imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.4\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/sat_img08.jpg}
+        \caption{Saturación imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.4\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/hue_img10.jpg}
+        \caption{Hue imagen 10}
+    \end{subfigure}
+    \begin{subfigure}{0.4\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/sat_img10.jpg}
+        \caption{Saturación imagen 10}
+    \end{subfigure}
+    \caption{Canales de Hue y Saturación para las imágenes 0, 8 y 10.}
+    \label{fig:hue_vs_saturation}
+\end{figure}
+
+En la escala de matiz, el rojo se corresponde con valores cercanos a 0 y el azul a 120.
+Como vemos en la Figura \ref{fig:hue_vs_saturation}, el canal de saturación resalta mucho más las señales de tráfico que el canal de matiz.
+Es una excepción la imagen nocturna (Imagen 10), donde el canal de saturación apenas resalta las señales debido a la baja iluminación y
+a la presencia de luces artificiales que distorsionan los colores. El canal de matiz, por otro lado, es prometedor en la imagen 10 al 
+resaltar las señales de la zona propiamente iluminada ya que estas están fabricadas con un material que permite reflejar la luz de manera más efectiva durante la noche.
+
+\textit{Items de evaluación: \underline{\textbf{BT1f}}}
+
+\subsubsection{Operador de Canny en espacio HSV}
+
+Aplicando el pipeline de detección de bordes basado en Canny explicado en la sección anterior, pero esta vez en el espacio HSV, 
+acabamos concluyendo que una ponderación de los canales H y S con pesos 0.25 y 0.75 respectivamente daba los mejores bordes.
+El proceso completo es el siguiente:
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img00.jpg}
+        \caption{Canny HSV imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img01.jpg}
+        \caption{Canny HSV imagen 1}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img02.jpg}
+        \caption{Canny HSV imagen 2}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img03.jpg}
+        \caption{Canny HSV imagen 3}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img04.jpg}
+        \caption{Canny HSV imagen 4}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img05.jpg}
+        \caption{Canny HSV imagen 5}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img06.jpg}
+        \caption{Canny HSV imagen 6}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img07.jpg}
+        \caption{Canny HSV imagen 7}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img08.jpg}
+        \caption{Canny HSV imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img09.jpg}
+        \caption{Canny HSV imagen 9}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/canny_hsv_img10.jpg}
+        \caption{Canny HSV imagen 10}
+    \end{subfigure}
+    \caption{Resultados del operador de Canny en espacio HSV para las imágenes seleccionadas. Los bordes se muestran dilatados para mayor visibilidad.}
+    \label{fig:bt2_canny_hsv}
+\end{figure}
+
+\begin{enumerate}
+    \item Convertir la imagen de RGB a HSV.
+    \item Calcular la imagen ponderada: $I_{weighted} = 0.25 \cdot I_H + 0.75 \cdot I_S$.
+    \item Suavizar $I_{weighted}$ con un filtro Gaussiano de $\sigma=0.4$.
+    \item Aplicar el operador de Canny a $I_{weighted}$ con umbrales 150 y 250.
+\end{enumerate}
+
+\subsubsection{Segmentación por color y dilatación}
+
+El segundo método de detección de bordes que hemos implementado se basa en un segmentación por color en el espacio HSV.
+Después de identificar que las señales de tráfico se caracterizan por colores azules y rojos muy saturados, hemos optado por umbralizar
+segmentar la imagen a partir de los rangos de matiz [165, 180] y [0, 15] para el rojo y [90, 130] para el azul. Además, aplicamos 
+una umbralización en el canal de saturación para eliminar colores poco saturados, estableciendo un umbral en 90. El proceso completo es:
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img00.jpg}
+        \caption{Segmentación dilatada imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img01.jpg}
+        \caption{Segmentación dilatada imagen 1}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img02.jpg}
+        \caption{Segmentación dilatada imagen 2}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img03.jpg}
+        \caption{Segmentación dilatada imagen 3}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img04.jpg}
+        \caption{Segmentación dilatada imagen 4}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img05.jpg}
+        \caption{Segmentación dilatada imagen 5}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img06.jpg}
+        \caption{Segmentación dilatada imagen 6}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img07.jpg}
+        \caption{Segmentación dilatada imagen 7}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img08.jpg}
+        \caption{Segmentación dilatada imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img09.jpg}
+        \caption{Segmentación dilatada imagen 9}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/seg_dilate_img10.jpg}
+        \caption{Segmentación dilatada imagen 10}
+    \end{subfigure}
+    \caption{Resultados de la segmentación por color y dilatación para las imágenes seleccionadas. Los bordes se muestran dilatados para mayor visibilidad.}
+    \label{fig:bt2_seg_dilate}
+\end{figure}
+
+\begin{enumerate}
+    \item Convertir la imagen de RGB a HSV.
+    \item Crear una máscara binaria donde se cumplan las siguientes condiciones:
+    \begin{itemize}
+        \item El canal de saturación sea mayor que 90.
+        \item El canal de matiz esté en los rangos [165, 180] o [0, 15] (rojo) o [90, 130] (azul).
+    \end{itemize}
+    \item Eliminar las componentes conexas pequeñas (un umbral de 50 píxeles).
+    \item Aplicar una dilatación circular de un pixel de grosor y sustraer la máscara original para obtener los bordes.
+\end{enumerate}
+
+\subsubsection{Comparación de resultados}
+
+Aunque ambos métodos ofrecen resultados aceptables, hemos observado que la segmentación por color y dilatación tiende a ser más robusta en condiciones de iluminación variables y en presencia de ruido.
+Lo que nos hace decantarnos por este método es el buen funcionamiento en la imagen nocturna (Imagen 10), donde el operador de Canny en espacio HSV no logra detectar los bordes de las señales de tráfico debido a la baja iluminación y al ruido introducido por las luces artificiales. 
+Esta segunda técnica también parece generar menos falsos positivos en ciertas imágenes con fondos complejos.
+
+\subsection{Detección de features con RANSAC}
+
+Para la detección de features en imágenes hemos creado una clase en Python llamada \texttt{FeatureExtractor}. 
+En particular, la clase sirve de interfaz para la detección de líneas, segmentos y circunferencias mediante las ideas de RANSAC.
+
+\subsubsection{Detección de rectas}
+
+Una vez contamos con una imagen de bordes, la propuesta de RANSAC es la siguiente:
+
+\begin{enumerate}
+    \item Seleccionar aleatoriamente dos puntos de borde para definir una línea candidata.
+    \item Calcular la distancia perpendicular de todos los puntos de borde a esta línea.
+    \item Contar el número de inliers, es decir, puntos cuya distancia a la línea es menor que un umbral predefinido.
+    \item Repetir los pasos 1-3 un número fijo de veces o hasta que se alcance un número suficiente de inliers.
+    \item Seleccionar la línea con el mayor número de inliers como la mejor estimación.
+    \item Opcionalmente, refinar la línea utilizando todos los inliers mediante un ajuste por mínimos cuadrados.
+\end{enumerate}
+
+Nosotros hemos decidido implementar nuestra versión en C, la cual puede ser consultada en \texttt{src/dgst/ffi/ransac.c} bajo el 
+nombre de \texttt{ransac\_line\_fitting}. El procedimiento implementado es el recién descrito. Los parámetros que necesita son:
+\begin{itemize}
+    \item input: Puntero a un array de puntos de borde.
+    \item width, height: Dimensiones de la imagen.
+    \item distance\_threshold: Umbral de distancia para considerar un punto como inlier.
+    \item max\_iterations: Número de iteraciones de RANSAC.
+    \item max\_lsq\_iterations: Número de iteraciones para el ajuste por mínimos cuadrados.
+    \item min\_inlier\_count: Número mínimo de inliers para aceptar una línea.
+\end{itemize}
+
+El resultado es una recta representada en forma ax + by + c = 0 mediante los parámetros a, b y c (en caso de que se haya encontrado alguna línea).
+Adicionalmente, como funcionalidad en python incluimos la posibilidad de eliminar los inliers de la recta detectada para facilitar la detección de 
+otras líneas en iteraciones posteriores.
+
+\textit{Items de evaluación: \underline{\textbf{BT2a}}, \underline{\textbf{BT2e}}}
+
+Aplicando este método a nuestras imágenes de bordes exigiendo un mínimo de 200 inliers en la primera iteración y un mínimo de 50 tras aplicar 
+RANSAC hasta 150 veces obtenemos imágenes como las mostradas en la Figura \ref{fig:bt2_detected_lines}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/lines_image00.jpg}
+        \caption{Líneas detectadas imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/lines_image08.jpg}
+        \caption{Líneas detectadas imagen 8}
+    \end{subfigure}
+    \caption{Resultados de la detección de líneas mediante RANSAC en las imágenes 0 y 8.}
+    \label{fig:bt2_detected_lines}
+\end{figure}
+
+El algoritmo funciona bien detectando las rectas, pero resulta ser muy sensible al ruido. En cuanto hay una cantidad no demasiado alta de nubes de puntos alineados las rectas encontradas se ajustan a este ruido. Para solucionar esto, podríamos aumentar el número mínimo de inliers requerido, pero a costa de sacrificar algunas rectas más pequeñas. 
+
+Debido a que las señales de tráfico ocupan una sección relativamente pequeña de la imagen, proponemos aplicar RANSAC mediante un algoritmo de ventana deslizante. De esta forma, permitimos eliminar esas rectas que se ajustan al ruido y detectar bordes más pequeños al poder reducir el número mínimo de inliers necesarios para determinar una recta. Para ello, utilizamos un nuevo método extractor de características llamado  \texttt{windowed\_ransac\_line\_fitting}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/linesw_image00.jpg}
+        \caption{Líneas detectadas imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/linesw_image08.jpg}
+        \caption{Líneas detectadas imagen 8}
+    \end{subfigure}
+    \caption{Resultados de la detección de líneas mediante RANSAC en ventana deslizante en las imágenes 0 y 8.}
+    \label{fig:bt2_detected_lines}
+\end{figure}
+
+Como vemos, a pesar de utilizar en este caso un umbral de detección de inliers mayor (1.4 frente a 0.7 en el caso anterior) y un 
+requerimiento menor de inliers por iteración, el método de ventana deslizante consigue detectar las rectas relevantes de la imagen sin verse tan afectado por el ruido.
+
+\subsubsection{Detección de segmentos}
+
+Otro problema de la baja ocupancia de las señales es que las rectas cubren innecesariamente toda la imagen. 
+Sería ideal limitar la expresión de las mismas a los segmentos donde realmente hay señales.
+Es por esto que proponemos un método para inferir segmentos a partir de las rectas detectadas. El procedimiento, 
+implementado mediante el método \texttt{get\_line\_support} de la clase FeatureExtractor, es el siguiente:
+
+\begin{enumerate}
+    \item Se proporciona una recta en forma ax + by + c = 0, desactivando la eliminación de inliers en su detección.
+    \item Se reobtienen los inliers de la línea en la imagen de bordes.
+    \item Los inliers se proyectan ortogonalmente sobre la recta para obtener sus coordenadas 1D.
+    \item Se calcula la densidad de inliers a lo largo de la línea.
+    \item Se identifica el segmento maximal con densidad que supere un umbral dado.
+\end{enumerate}
+
+Para llevar a cabo el último paso, hemos utilizado una versión adaptada del Algoritmo de Kadane \cite{kadane}, un algoritmo de programación dinámica que resuelve el 
+problema \textbf{Maximum Subarray Problem} de encontrar un subarray de suma máxima. Los pasos de esta adaptación son, partiendo de una serie de puntos en 1D (proyecciones sobre la recta):
+
+\begin{enumerate}
+    \item Se establece un umbral de densidad $\mu$ (número de inliers por unidad de longitud).
+    \item Se construye un array auxiliar A, de forma que A[i] representa la contribución de densidad del i-ésimo intervalo $A_i = 1 - \mu\times(p_{i+1} - p_i)$
+    \item Se inicializan las variables:
+    \begin{itemize}
+        \item max\_sum = 0
+        \item current\_sum = 0
+        \item start\_index = 0
+        \item best\_start = -1
+        \item best\_end = -1
+    \end{itemize}
+    \item Se recorren los elementos del array A guardando las sumas acumuladas:
+    \begin{itemize}
+        \item current\_sum += A[i]
+        \item Si current\_sum > max\_sum:
+        \begin{itemize}
+            \item max\_sum = current\_sum
+            \item best\_start = start\_index
+            \item best\_end = i
+        \end{itemize}
+        \item Si current\_sum < 0:
+        \begin{itemize}
+            \item current\_sum = 0
+            \item start\_index = i + 1
+        \end{itemize}
+    \end{itemize}
+    \item Se devuelve el segmento [best\_start, best\_end].
+\end{enumerate}
+
+\textit{Items de evaluación: \underline{\textbf{BT2g}}}
+
+Una de las bondades de este algoritmo es que funciona en tiempo lineal con respecto al número de inliers. Podemos verlo en acción sobre una región de la imagen 0 en la Figura \ref{fig:kadane_example}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/segments_image00.jpg}
+        \caption{Segmentos detectados imagen 0}
+    \end{subfigure}
+    \caption{Resultados de la detección de segmentos mediante RANSAC en las imagen 0.}
+    \label{fig:kadane_example}
+\end{figure}
+
+Los segmentos azules representan los soportes detectados. Al igual que hacíamos con las rectas,
+permitimos eliminar los inliers de los segmentos para facilitar la detección de otros en iteraciones posteriores.
+El método permite incluso borrar los inliers de una recta para la que no se haya detectado soporte, lo que resulta muy útil para eliminar rectas que se ajustan al ruido.
+Incluso podemos especificar una longitud mínima para el soporte y un umbral de detección de inliers diferente a la de la recta para mayor flexibilidad.
+
+\subsubsection{Detección de circunferencias}
+
+La última característica de bordes que exploramos es la detección de circunferencias, ya que algunas señales de tráfico son circulares.
+El procedimiento es similar al de las rectas, pero en este caso seleccionamos tres puntos aleatoriamente para definir una circunferencia candidata.
+El resto de pasos son análogos a los descritos para las rectas. Hemos implementado este método en C bajo el nombre \texttt{ransac\_circle\_fitting}
+en el módulo \texttt{src/dgst/filters/ffi/ransac.c}.
+Los parámetros que necesita son:
+\begin{itemize}
+    \item input: Puntero a un array de puntos de borde.
+    \item width, height: Dimensiones de la imagen.
+    \item distance\_threshold: Umbral de distancia para considerar un punto como inlier.
+    \item max\_iterations: Número de iteraciones de RANSAC.
+    \item min\_inlier\_ratio: Proporción mínima de inliers respecto a la longitud del radio para aceptar una circunferencia.
+    \item min\_radius, max\_radius: Radios mínimo y máximo permitidos para las circunferencias.
+\end{itemize}
+
+\textit{Items de evaluación: \underline{\textbf{BT2d}}}
+
+Sobre este procedimiento, también resulta necesario acotar el radio máximo y mínimo de las circunferencias a detectar para así evitar encontrar circunferencias extremadamente pequeñas o tratar rectas como circunferencias de radio muy grande.
+Si bien en el caso de las rectas establecíamos un número máximo de inliers, en el caso de las circunferencias resulta más apropiado establecer una proporción mínima de inliers con respecto al radio de la circunferencia, pues un match de radio muy grande puede tener muchos inliers sin que realmente represente una circunferencia en la imagen. 
+Como orientación para este valor, el "número pi" para circunferencias discretas es aproximadamente $\sqrt{8}$. 
+La prueba de ello puede ser un ejercicio sencillo para el lector. 
+Por tanto, un valor razonable para la detección de circunferencias con este método debería ser aproximadamente $2 \pi_d r / r = 2 \pi_d \approx 5.6$. Esto suponiendo que el umbral de distancia para considerar un inlier es pequeño.
+
+Aplicando este método a nuestras imágenes de bordes con un umbral de distancia de 1 píxel, 10000 iteraciones y una proporción mínima de inliers de 4 obtenemos imágenes como las mostradas en la Figura \ref{fig:bt2_detected_circles}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/circles_img02.jpg}
+        \caption{Circunferencias detectadas imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/circles_img09.jpg}
+        \caption{Circunferencias detectadas imagen 5}
+    \end{subfigure}
+    \caption{Resultados de la detección de circunferencias mediante RANSAC en las imágenes 2 y 9.}
+    \label{fig:bt2_detected_circles}
+\end{figure}
+
+Muchas de las circunferencias de nuestro dataset son detectadas. 
+No obstante, queda en evidencia que este método es muy sensible a la perspectiva ya que no se logra 
+captar las señales cuya normal se encuentra inclinada con respecto a la cámara (aparecen como elipses). 
+Sería una adición interesante la detección de este tipo de objetos y se plantea como una ampliación futura de este trabajo.
+
+\subsubsection{Puesta en común de los métodos}
+
+Finalmente, proponemos un pipeline que combina todos los métodos anteriores para este tipo de imágenes:
+
+\begin{enumerate}
+    \item Preprocesamiento de la imagen (corrección de distorsión, reescalado, filtro de medianas).
+    \item Detección de bordes mediante segmentación por color y dilatación.
+    \item Detección de líneas mediante RANSAC en ventana deslizante sin eliminación de inliers.
+    \item Detección de segmentos para cada línea detectada.
+    \item Detección de circunferencias.
+    \item Repetir los pasos 3-5 relajando los criterios de detección para encontrar más características.
+\end{enumerate}
+
+\textit{Items de evaluación: \underline{\textbf{BT2d}}}
+
+Podemos ver los resultados de este pipeline en la Figura \ref{fig:bt2_final_pipeline}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result00.jpg}
+        \caption{Características detectadas imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result01.jpg}
+        \caption{Características detectadas imagen 1}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result02.jpg}
+        \caption{Características detectadas imagen 2}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result03.jpg}
+        \caption{Características detectadas imagen 3}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result04.jpg}
+        \caption{Características detectadas imagen 4}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result05.jpg}
+        \caption{Características detectadas imagen 5}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result06.jpg}
+        \caption{Características detectadas imagen 6}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result07.jpg}
+        \caption{Características detectadas imagen 7}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result08.jpg}
+        \caption{Características detectadas imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result09.jpg}
+        \caption{Características detectadas imagen 9}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/final_result10.jpg}
+        \caption{Características detectadas imagen 10}
+    \end{subfigure}
+    \caption{Resultados del pipeline completo de detección de características.}
+    \label{fig:bt2_final_pipeline}
+\end{figure}
+
+\subsection{Análisis de RANSAC para la detección de rectas}
+
+En los apartados anteriores establecíamos los parámetros para RANSAC de forma manual para conseguir resultados aceptables. 
+Esta sección, sin afán de ser un análisis exhaustivo ni completo pues la convergencia de estos métodos 
+depende en gran medida en los elementos que se puedan encontrar en cada imagen, puede orientarnos a la hora de 
+calibrar los parámetros en un trabajo futuro.
+En concreto, vamos a centrarnos en el algoritmo de detección de rectas.
+
+\subsubsection{Análisis de rendimiento}
+
+En primer lugar vamos a analizar el tiempo de ejecución del algoritmo. 
+Sabemos que su complejidad temporal teórica es $O(it\times k)$ donde $it$ es el número de iteraciones 
+y $k$ el número de píxeles de borde.
+Para comprobarlo, hemos medido el tiempo de ejecución en imágenes 1000x1000 con diferentes cantidades de píxeles de borde y 
+hemos obtenido las siguientes gráficas:
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/ransacvsedges.png}
+        \caption{Tiempo medio de ejecución por iteración vs número de píxeles de borde}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{images/bt2/ransacppvsnp.png}
+        \caption{Tiempo medio de ejecución por iteración y número de píxeles de borde vs número de píxeles de borde}
+    \end{subfigure}
+    \caption{Análisis del tiempo de ejecución del algoritmo RANSAC para la detección de rectas.}
+    \label{fig:bt2_ransac_time_analysis}
+\end{figure}
+
+Resulta evidente la relación lineal entre el número de píxeles de borde y el tiempo de ejecución por iteración, confirmando la complejidad teórica del algoritmo.
+En una ejecución monohilo en un equipo con procesador AMD Ryzen 7 5800H, el tiempo medio por iteración y píxel de borde es de aproximadamente $0.03$ microsegundos.
+
+\subsubsection{Análisis de convergencia}
+
+Estudiar cuánto tarda en converger el algoritmo es algo más complicado ya que depende en mayor medida de los elementos que puedan estar presentes en la imagen. 
+Para poder concluir cuántas iteraciones son necesarias para detectar una recta vamos a hacer lo siguiente:
+
+\begin{enumerate}
+    \item Establecer un valor inicial de max\_iterations.
+    \item Ejecutar RANSAC 100 veces.
+    \item Almacenar la tasa de éxito (número de veces que se detecta una recta con al menos 150 inliers).
+    \item Aumentar max\_iterations en un 10\%.
+    \item Volver al paso 2.
+\end{enumerate}
+Podemos repetir este procedimiento hasta obtener una tasa de éxito superior al 90\% o hasta superar las 1000 iteraciones.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.45\linewidth]{images/bt2/ramo.png}
+    \caption{Convergencia del algoritmo RANSAC para la detección de rectas.}
+    \label{fig:bt2_ransac_convergence}
+\end{figure}
+
+\textit{Items de evaluación: \underline{\textbf{BT2c}}}
+
+Buscando una recta con 150 inliers, que para los rangos en los que estamos trabajando se considera un número alto, 
+vemos como en las imágenes 7, 2, 8, 0 y 3 ransac encuentra dicha recta el 80\% 
+de las veces en menos de 400 iteraciones. Para los casos en los que no existe dicha recta, 
+como en la imagen 1 o la imagen 10, la gráfica se muestra como se esperaba. 
+
+En cualquier caso, en todas las imágenes en las que sí existe dicha recta parece encontrarse un 20\% de las ocasiones
+ en las 100 primeras iteraciones. Este hecho nos va a ayudar a establecer un número mínimo de iteraciones necesario 
+ para detectar una recta. 
+
+Sea $X$ la variable aleatoria que modela la cantidad de iteraciones necesarias para detectar una recta que 
+cumpla las condiciones en el caso de que exista. $X$ sigue entonces una distribución binomial con probabilidad 
+de éxito de $p=20\%/100 = 2\times 10^{-3}$. Entonces:
+$P(X\leq n)=0.95 \Leftrightarrow 1-(1-p)^n > 0.95 \Leftrightarrow (1-2\times 10^{-3})^n > 0.05 \Leftrightarrow n\ln{(1-2\times 10^{-3})} > \ln{0.05} \Leftrightarrow n>1497$.
+
+En conclusión, estableciendo el máximo de número de ejecuciones a 1500, en caso de que exista una recta que cumpla 
+las condiciones que buscamos será encontrada el 95\% de las veces.
+Para imágenes como las vistas en este ducumento, que cuentan con no más de 10000 píxeles de borde, 
+y con el análisis previo podemos establecer un tiempo estimado para encontrar una recta de:
+
+$$
+3\times 10^{-8}\frac{s}{it}\times 1500 \frac{it}{recta} = 4.5\times 10^{-5} \frac{s}{recta}
+$$
+
+Por tanto, el tiempo de cómputo estimado por recta es de 0.045 milisegundos, un tiempo más que asumible
+ teniendo en cuenta las condiciones planteadas. Para usos posteriores se propone:
+\begin{enumerate}
+    \item Comenzar con un número de inliers excesivo.
+    \item Aplicar RANSAC con 1500 iteraciones.
+    \item Si no se encuentra una recta, decrementar el número de inliers.
+    \item Repetir 2 hasta encontrar una recta o llegar a un número mínimo de inliers.
+\end{enumerate}
+
+Aun comenzando con 300 inliers (lo que correspondería a más o menos un tercio de la longitud
+ de la imagen con la que trabajamos), estableciendo un decremento de 2 inliers por iteración y
+  suponiendo que encontramos de media una recta por iteración, hablamos un tiempo de cómputo de
+   unos 6 milisegundos. Un tiempo corto aún procesando video en directo.
+
+\clearpage
+
+\section*{Uso de IA}
+
+Se ha utilizado IA conversacional para asistencia en la elaboración de código y en la comprensión de los algoritmos. Todo el contenido generado fue revisado y adaptado por los autores.
+
+%\printbibliography
+
+\end{document}
