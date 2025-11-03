@@ -443,7 +443,9 @@ requerimiento menor de inliers por iteración, el método de ventana deslizante 
 
 Otro problema de la baja ocupancia de las señales es que las rectas cubren innecesariamente toda la imagen. 
 Sería ideal limitar la expresión de las mismas a los segmentos donde realmente hay señales.
-Es por esto que proponemos un método para inferir segmentos a partir de las rectas detectadas. El procedimiento, 
+Es por esto que proponemos un método para inferir segmentos a partir de las rectas detectadas.
+A estos segmentos nosotros los llamamos 'soporte'. 
+El procedimiento, 
 implementado mediante el método \texttt{get\_line\_support} de la clase FeatureExtractor, es el siguiente:
 
 \begin{enumerate}
@@ -489,14 +491,215 @@ problema \textbf{Maximum Subarray Problem} de encontrar un subarray de suma máx
 Una de las bondades de este algoritmo es que funciona en tiempo lineal con respecto al número de inliers. Podemos verlo en acción sobre una región de la imagen 0 en la \cref{fig:kadane_example}.
 
 \begin{figure}[H]
-    \centering
-    \begin{subfigure}{0.45\textwidth}
-        \includegraphics[width=\linewidth]{segments_image00.jpg}
-        \caption{Segmentos detectados imagen 0}
-    \end{subfigure}
+    \centering        
+    \includegraphics[width=0.35\linewidth]{segments_image00.jpg}
     \caption{Resultados de la detección de segmentos mediante RANSAC en las imagen 0.}
     \label{fig:kadane_example}
 \end{figure}
+
+Los segmentos azules representan los soportes detectados. Al igual que hacíamos con las rectas,
+permitimos eliminar los inliers de los segmentos detectados para facilitar la detección de otros segmentos en iteraciones posteriores.
+El método permite incluso borrar los inliers de una recta para la que no se haya detectado soporte, lo que resulta muy útil para eliminar rectas que se ajustan al ruido.
+Incluso podemos especificar una longitud mínima para el soporte y una umbral de detección de inliers diferente a la de la recta para mayor flexibilidad.
+
+\subsubsection{Detección de circunferencias}
+
+La última característica de bordes que exploramos es la detección de circunferencias, ya que algunas señales de tráfico son circulares.
+El procedimiento es similar al de las rectas, pero en este caso seleccionamos tres puntos aleatoriamente para definir una circunferencia candidata.
+El resto de pasos son análogos a los descritos para las rectas. Hemos implementado este método en C bajo el nombre \texttt{ransac\_circle\_fitting}
+en el módulo \texttt{src/dgst/filters/ffi/ransac.c}.
+Los parámetros que necesita son:
+\begin{itemize}
+    \item input: Puntero a un array de puntos de borde.
+    \item width, height: Dimensiones de la imagen.
+    \item distance\_threshold: Umbral de distancia para considerar un punto como inlier.
+    \item max\_iterations: Número de iteraciones de RANSAC.
+    \item min\_inlier\_ratio: Proporción mínima de inliers respecto a la longitud del radio para aceptar una circunferencia.
+    \item min\_radius, max\_radius: Radios mínimo y máximo permitidos para las circunferencias.
+\end{itemize}
+
+Sobre este procedimiento, también resulta necesario acotar el radio máximo y mínimo de las circunferencias a detectar para así evitar encontrar circunferencias extremadamente pequeñas o tratar rectas como circunferencias de radio muy grande.
+Si bien en el caso de las rectas establecíamos un número máximo de inliers, en el caso de las circunferencias resulta más apropiado establecer una proporción mínima de inliers con respecto al radio de la circunferencia, pues un match de radio muy grande puede tener muchos inliers sin que realmente represente una circunferencia en la imagen. 
+Como orientación para este valor, el "número pi" para circunferencias discretas es aproximadamente $\sqrt{8}$. 
+La prueba de ello puede ser un ejercicio sencillo para el lector. 
+Por tanto, un valor razonable para la detección de circunferencias con este método debería ser aproximadamente $2 \pi_d r / r = 2 \pi_d \approx 5.6$. Esto suponiendo que el umbral de distancia para considerar un inlier es pequeño.
+
+Aplicando este método a nuestras imágenes de bordes con un umbral de distancia de 1 píxel, 10000 iteraciones y una proporción mínima de inliers de 4 obtenemos imágenes como las mostradas en la \cref{fig:bt2_detected_circles}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{circles_img02.jpg}
+        \caption{Circunferencias detectadas imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{circles_img09.jpg}
+        \caption{Circunferencias detectadas imagen 5}
+    \end{subfigure}
+    \caption{Resultados de la detección de circunferencias mediante RANSAC en las imágenes 2 y 9.}
+    \label{fig:bt2_detected_circles}
+\end{figure}
+
+Muchas de las circunferencias de nuestro dataset son detectadas. 
+No obstante, queda en evidencia que este método es muy sensible a la perspectiva ya que no se logra 
+captar las señales cuya normal se encuentra inclinada con respecto a la cámara (aparecen como elipses). 
+Sería una adición interesante la detección de este tipo de objetos y se plantea como una ampliación futura de este trabajo.
+
+\subsubsection{Puesta en común de los métodos}
+
+Finalmente, proponemos un pipeline que combina todos los métodos anteriores para este tipo de imágenes:
+
+\begin{enumerate}
+    \item Preprocesamiento de la imagen (corrección de distorsión, reescalado, filtro de medianas).
+    \item Detección de bordes mediante segmentación por color y dilatación.
+    \item Detección de líneas mediante RANSAC en ventana deslizante sin eliminación de inliers.
+    \item Detección de segmentos para cada línea detectada.
+    \item Detección de circunferencias.
+    \item Repetir los pasos 3-5 relajando los criterios de detección para encontrar más características.
+\end{enumerate}
+
+Podemos ver los resultados de este pipeline en la \cref{fig:bt2_final_pipeline}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result00.jpg}
+        \caption{Características detectadas imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result01.jpg}
+        \caption{Características detectadas imagen 1}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result02.jpg}
+        \caption{Características detectadas imagen 2}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result03.jpg}
+        \caption{Características detectadas imagen 3}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result04.jpg}
+        \caption{Características detectadas imagen 4}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result05.jpg}
+        \caption{Características detectadas imagen 5}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result06.jpg}
+        \caption{Características detectadas imagen 6}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result07.jpg}
+        \caption{Características detectadas imagen 7}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result08.jpg}
+        \caption{Características detectadas imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result09.jpg}
+        \caption{Características detectadas imagen 9}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result10.jpg}
+        \caption{Características detectadas imagen 10}
+    \end{subfigure}
+    \caption{Resultados del pipeline completo de detección de características.}
+    \label{fig:bt2_final_pipeline}
+\end{figure}
+
+\subsection{Análisis de RANSAC para la detección de rectas}
+
+En los apartados anteriores establecíamos los parámetros para RANSAC de forma manual para conseguir resultados aceptables. 
+Esta sección, sin afán de ser un análisis exhaustivo ni completo pues la convergencia de estos métodos 
+depende en gran medida en los elementos que se puedan encontrar en cada imagen, puede orientarnos a la hora de 
+calibrar los parámetros en un trabajo futuro.
+En concreto, vamos a centrarnos en el algoritmo de detección de rectas.
+
+\subsubsection{Análisis de rendimiento}
+
+En primer lugar vamos a analizar el tiempo de ejecución del algoritmo. 
+Sabemos que su complejidad temporal teórica es $O(it\times k)$ donde $it$ es el número de iteraciones 
+y $k$ el número de píxeles de borde.
+Para comprobarlo, hemos medido el tiempo de ejecución en imágenes 1000x1000 con diferentes cantidades de píxeles de borde y 
+hemos obtenido las siguientes gráficas:
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{ransacvsedges.png}
+        \caption{Tiempo medio de ejecución por iteración vs número de píxeles de borde}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{ransacppvsnp.png}
+        \caption{Tiempo medio de ejecución por iteración y número de píxeles de borde vs número de píxeles de borde}
+    \end{subfigure}
+    \caption{Análisis del tiempo de ejecución del algoritmo RANSAC para la detección de rectas.}
+    \label{fig:bt2_ransac_time_analysis}
+\end{figure}
+
+Resulta evidente la relación lineal entre el número de píxeles de borde y el tiempo de ejecución por iteración, confirmando la complejidad teórica del algoritmo.
+En una ejecución monohilo en un equipo con procesador AMD Ryzen 7 5800H, el tiempo medio por iteración y píxel de borde es de aproximadamente $0.03$ microsegundos.
+
+\subsubsection{Análisis de convergencia}
+
+Estudiar cuánto tarda en converger el algoritmo es algo más complicado ya que depende en mayor medida de los elementos que puedan estar presentes en la imagen. 
+Para poder concluir cuántas iteraciones son necesarias para detectar una recta vamos a hacer lo siguiente:
+
+\begin{enumerate}
+    \item Establecer un valor inicial de max\_iterations.
+    \item Ejecutar RANSAC 100 veces.
+    \item Almacenar la tasa de éxito (número de veces que se detecta una recta con al menos 150 inliers).
+    \item Aumentar max\_iterations en un 10\%.
+    \item Volver al paso 2.
+\end{enumerate}
+Podemos repetir este procedimiento hasta obtener una tasa de éxito superior al 90\% o hasta superar las 1000 iteraciones.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.45\linewidth]{ramo.png}
+    \caption{Convergencia del algoritmo RANSAC para la detección de rectas.}
+    \label{fig:bt2_ransac_convergence}
+\end{figure}
+
+Buscando una recta con 150 inliers, que para los rangos en los que estamos trabajando se considera un número alto, 
+vemos como en las imágenes 7, 2, 8, 0 y 3 ransac encuentra dicha recta el 80\% 
+de las veces en menos de 400 iteraciones. Para los casos en los que no existe dicha recta, 
+como en la imagen 1 o la imagen 10, la gráfica se muestra como se esperaba. 
+
+En cualquier caso, en todas las imágenes en las que sí existe dicha recta parece encontrarse un 20\% de las ocasiones
+ en las 100 primeras iteraciones. Este hecho nos va a ayudar a establecer un número mínimo de iteraciones necesario 
+ para detectar una recta. 
+
+Sea $X$ la variable aleatoria que modela la cantidad de iteraciones necesarias para detectar una recta que 
+cumpla las condiciones en el caso de que exista. $X$ sigue entonces una distribución binomial con probabilidad 
+de éxito de $p=20\%/100 = 2\times 10^{-3}$. Entonces:
+$P(X\leq n)=0.95 \Leftrightarrow 1-(1-p)^n > 0.95 \Leftrightarrow (1-2\times 10^{-3})^n > 0.05 \Leftrightarrow n\ln{(1-2\times 10^{-3})} > \ln{0.05} \Leftrightarrow n>1497$.
+
+En conclusión, estableciendo el máximo de número de ejecuciones a 1500, en caso de que exista una recta que cumpla 
+las condiciones que buscamos, será encontrada el 95\% de las veces.
+Para imágenes como las vistas en este ducumento, que cuentan con no más de 10000 píxeles de borde, 
+y con el análisis previo podemos establecer un tiempo estimado para encontrar una recta de:
+
+$$
+3\times 10^{-8}\frac{s}{it}\times 1500 \frac{it}{recta} = 4.5\times 10^{-5} \frac{s}{recta}
+$$
+
+Por tanto, el tiempo de cómputo estimado por recta es de 0.045 milisegundos, un tiempo más que asumible
+ teniendo en cuenta las condiciones planteadas. Para usos posteriores se propone:
+\begin{enumerate}
+    \item Comenzar con un número de inliers excesivo.
+    \item Aplicar RANSAC con 1500 iteraciones.
+    \item Si no se encuentra una recta, decrementar el número de inliers.
+    \item Repetir 2 hasta encontrar una recta o llegar a un número mínimo de inliers.
+\end{enumerate}
+
+Aun comenzando con 300 inliers (lo que correspondería a más o menos un tercio de la longitud
+ de la imagen con la que trabajamos), estableciendo un decremento de 2 inliers por iteración y
+  suponiendo que encontramos de media una recta por iteración, hablamos un tiempo de cómputo de
+   unos 6 milisegundos. Un tiempo corto aún procesando video en directo.
+
 
 
 
