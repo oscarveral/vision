@@ -1,13 +1,33 @@
 \documentclass{beamer}
 
-\usetheme{Madrid}
-\usecolortheme{default}
+\usetheme{Berlin}
+\usecolortheme{crane}
+
+% Custom yellow color scheme
+\definecolor{UMYellow}{RGB}{255,193,7}
+\definecolor{UMDarkYellow}{RGB}{245,166,35}
+\definecolor{UMGold}{RGB}{255,179,0}
+
+\setbeamercolor{structure}{fg=UMDarkYellow}
+\setbeamercolor{palette primary}{bg=UMYellow,fg=black}
+\setbeamercolor{palette secondary}{bg=UMDarkYellow,fg=white}
+\setbeamercolor{palette tertiary}{bg=UMGold,fg=black}
+\setbeamercolor{palette quaternary}{bg=UMDarkYellow,fg=white}
+\setbeamercolor{titlelike}{parent=palette primary}
+\setbeamercolor{block title}{bg=UMYellow,fg=black}
+\setbeamercolor{block body}{bg=UMYellow!10,fg=black}
+\setbeamercolor{frametitle}{bg=UMDarkYellow,fg=white}
+
+% Remove navigation symbols and headline (progress bar)
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{headline}{}
 
 \usepackage[utf8]{inputenc}
 \usepackage[spanish]{babel}
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{hyperref}
+\usepackage{subcaption}
 
 \title{Visión Artificial}
 \subtitle{BT1 y BT2}
@@ -49,7 +69,7 @@
 \begin{frame}{Regiones de Interés (ROIs)}
   \begin{figure}
     \centering
-    \includegraphics[width=0.8\textwidth]{figures/rois_visualization.png}
+    \includegraphics[width=\textwidth]{figures/rois_visualization.png}
     \caption{Visualización de ROIs con señales de tráfico detectadas}
   \end{figure}
 \end{frame}
@@ -313,44 +333,259 @@
   \end{itemize}
 \end{frame}
 
-\begin{frame}{Calidad: Suavizado FFI vs. OpenCV}
-  \begin{figure}
-    \centering
-    \includegraphics[width=0.9\textwidth]{figures/smoothing_ffi_vs_smoothing_opencv_comparison.png}
-    \caption{Diferencias cualitativas mínimas}
-  \end{figure}
-\end{frame}
+\section{BT2: Estimación Robusta de Parámetros}
 
-\begin{frame}{Rendimiento: Canny}
-  \textbf{Comparación de tiempos (Intel i7-10750H):}
+\subsection{Preprocesamiento}
+
+\begin{frame}{Preprocesamiento de Imágenes}
+  \textbf{Pipeline aplicado:}
+  \begin{enumerate}
+    \item Corrección de distorsión Kannala-Brandt
+    \item Reescalado por factor 0.5
+    \item Filtro de medianas 5x5 para reducir ruido
+  \end{enumerate}
+  
+  \vspace{0.3cm}
+  
+  \textbf{Resultado:}
   \begin{itemize}
-    \item \textbf{OpenCV:} $\sim$0.5 ms (media)
-    \item \textbf{Nuestra implementación:} $\sim$3.5 ms (media)
+    \item Dimensiones finales: 1924x1084 píxeles
+    \item Imágenes optimizadas para detección de features
   \end{itemize}
-  
-  \vspace{0.5cm}
-  
-  \begin{figure}
-    \centering
-    \includegraphics[width=0.7\textwidth]{figures/canny_ffi_vs_opencv_comparison.png}
-    \caption{Resultados cualitativos comparables}
-  \end{figure}
 \end{frame}
 
-\begin{frame}{Rendimiento: Congruencia de Fase}
-  \begin{center}
-    \textbf{Observaciones:}
+\subsection{Detección de Bordes en HSV}
+
+\begin{frame}{Espacio de Color HSV}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{¿Por qué HSV?}
     \begin{itemize}
-      \item Implementación en C más lenta que Python/NumPy
-      \item Mucho más lento que Canny
-      \item No recomendado para aplicaciones en tiempo real
-      \item Útil para análisis offline donde la calidad es prioritaria
+      \item Hue (Matiz): tipo de color (0-179)
+      \item Saturation: intensidad del color
+      \item Value: brillo
+      \item Señales diseñadas con colores brillantes
+      \item Robusto ante cambios de iluminación
     \end{itemize}
     
-    \vspace{0.5cm}
+    \column{0.5\textwidth}
+    \begin{figure}
+      \includegraphics[width=0.8\textwidth]{figures/hue_img00.jpg}
+      \caption{Canal Hue}
+    \end{figure}
+    \begin{figure}
+      \includegraphics[width=0.8\textwidth]{figures/sat_img00.jpg}
+      \caption{Canal Saturación}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Métodos de Detección de Bordes}
+  \textbf{Método 1: Canny en HSV}
+  \begin{itemize}
+    \item Ponderación: 0.25H + 0.75S
+    \item Suavizado Gaussiano ($\sigma=0.4$)
+    \item Canny con umbrales: 150 y 250
+  \end{itemize}
+  
+  \vspace{0.3cm}
+  
+  \textbf{Método 2: Segmentación por color + dilatación}
+  \begin{itemize}
+    \item Segmentación: Rojo [165-180, 0-15] y Azul [90-130]
+    \item Umbral de saturación: 90
+    \item Eliminación de componentes conexas pequeñas
+    \item Dilatación circular
+  \end{itemize}
+  
+  \vspace{0.3cm}
+  
+  \textbf{Conclusión:} Segmentación por color más robusta, especialmente en condiciones nocturnas
+\end{frame}
+
+\begin{frame}{Comparación de Métodos}
+  \begin{figure}
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+      \includegraphics[width=\textwidth]{figures/canny_hsv_img00.jpg}
+      \caption{Canny HSV}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+      \includegraphics[width=\textwidth]{figures/seg_dilate_img00.jpg}
+      \caption{Segmentación + Dilatación}
+    \end{subfigure}
+  \end{figure}
+\end{frame}
+
+\subsection{RANSAC para Detección de Features}
+
+\begin{frame}{Detección de Rectas con RANSAC}
+  \textbf{Algoritmo implementado en C:}
+  \begin{enumerate}
+    \item Seleccionar 2 puntos aleatorios
+    \item Calcular distancia de puntos a la línea
+    \item Contar inliers (umbral de distancia)
+    \item Repetir y seleccionar mejor línea
+    \item Refinar con mínimos cuadrados
+  \end{enumerate}
+  
+  \vspace{0.3cm}
+  
+  \textbf{Mejora: Ventana deslizante}
+  \begin{itemize}
+    \item Reduce sensibilidad al ruido
+    \item Detecta bordes más pequeños
+    \item Menor requisito de inliers
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Resultados: Detección de Líneas}
+  \begin{figure}
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+      \includegraphics[width=\textwidth]{figures/lines_image00.jpg}
+      \caption{RANSAC básico}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+      \includegraphics[width=\textwidth]{figures/linesw_image00.jpg}
+      \caption{Ventana deslizante}
+    \end{subfigure}
+  \end{figure}
+  
+  Ventana deslizante elimina ruido y detecta líneas relevantes
+\end{frame}
+
+\begin{frame}{Detección de Segmentos}
+  \textbf{Problema:} Rectas cubren toda la imagen innecesariamente
+  
+  \vspace{0.3cm}
+  
+  \textbf{Solución: Algoritmo de Kadane adaptado}
+  \begin{itemize}
+    \item Proyección ortogonal de inliers sobre la recta
+    \item Cálculo de densidad de inliers
+    \item Identificación de segmento maximal
+    \item Complejidad: $O(k)$ con $k$ = número de inliers
+  \end{itemize}
+  
+  \vspace{0.3cm}
+  
+\end{frame}
+
+\begin{frame}{Detección de Segmentos}  
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.30\textwidth]{figures/segments_image00.jpg}
+    \caption{Segmentos detectados}
+  \end{figure}
+\end{frame}
+
+
+\begin{frame}{Detección de Circunferencias}
+  \textbf{Método RANSAC adaptado:}
+  \begin{itemize}
+    \item Selección de 3 puntos aleatorios
+    \item Proporción mínima de inliers respecto al radio
+    \item Acotación de radio mínimo y máximo
+    \item $\pi$ discreto $\approx \sqrt{8}$
+  \end{itemize}
+  
+  \begin{figure}
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+      \includegraphics[width=\textwidth]{figures/circles_img02.jpg}
+      \caption{Imagen 2}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+      \includegraphics[width=\textwidth]{figures/circles_img09.jpg}
+      \caption{Imagen 9}
+    \end{subfigure}
+    \caption{Circunferencias detectadas}
+  \end{figure}
+  
+  \textbf{Limitación:} Sensible a perspectiva (no detecta elipses)
+\end{frame}
+
+\begin{frame}{Pipeline Completo BT2}
+  \textbf{Proceso integrado:}
+  \begin{enumerate}
+    \item Preprocesamiento (distorsión, escalado, filtrado)
+    \item Detección de bordes por segmentación de color
+    \item Detección de líneas (RANSAC con ventana deslizante)
+    \item Detección de segmentos (Algoritmo de Kadane)
+    \item Detección de circunferencias (RANSAC)
+    \item Iteración con criterios relajados
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{Resultados Finales}
+  \begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{figures/final_result00.jpg}
+    \caption{Img 0}
+  \end{figure}
+\end{frame}
+
+\begin{frame}{Resultados Finales}
+  \begin{figure}
+    \centering
+      \includegraphics[width=\textwidth]{figures/final_result02.jpg}
+      \caption{Img 2}
+    \end{figure}
+\end{frame}
+
+\begin{frame}{Resultados Finales}
+  \begin{figure}
+    \centering
+      \includegraphics[width=\textwidth]{figures/final_result08.jpg}
+      \caption{Img 8}
+    \end{figure}
+\end{frame}
+
+
+\subsection{Análisis de Rendimiento}
+
+\begin{frame}{Análisis de RANSAC}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Complejidad temporal:} $O(it \times k)$
+    \begin{itemize}
+      \item $it$: número de iteraciones
+      \item $k$: píxeles de borde
+      \item Tiempo: $\sim$0.03 $\mu$s/píxel
+    \end{itemize}
     
-    \textbf{Recomendación:} Usar versión Python con NumPy y Canny para tiempo real
-  \end{center}
+    \column{0.5\textwidth}
+    \begin{figure}
+      \includegraphics[width=\textwidth]{figures/ransacvsedges.png}
+      \caption{Tiempo vs píxeles}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Convergencia de RANSAC}
+  \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Parámetros:}
+    \begin{itemize}
+      \item 1500 iteraciones: 95\% éxito
+      \item Tiempo: 0.045 ms/recta
+      \item Pipeline: $\sim$6 ms
+      \item Viable para tiempo real
+    \end{itemize}
+    
+    \column{0.5\textwidth}
+    \begin{figure}
+      \includegraphics[width=\textwidth]{figures/ramo.png}
+      \caption{Tasa de éxito}
+    \end{figure}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Fin}
+  
+    Muchas gracias!
+
 \end{frame}
 
 \end{document}
