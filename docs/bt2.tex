@@ -1,0 +1,706 @@
+% bt2.tex — LaTeX article template
+% Compile: pdflatex bt2.tex && biber bt2 && pdflatex bt2.tex && pdflatex bt2.tex
+
+\documentclass[11pt,a4paper]{article}
+
+% Encoding & fonts
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% Page layout
+\usepackage{geometry}
+\geometry{margin=1in}
+
+% Math & symbols
+\usepackage{amsmath,amssymb,amsthm}
+
+% Graphics & tables
+\usepackage{graphicx}
+\usepackage{caption,subcaption}
+\usepackage{booktabs}
+\usepackage{float}
+
+% Code listings
+\usepackage{listings}
+\usepackage{xcolor}
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    breaklines=true
+}
+
+% Images folder
+\graphicspath{{images/bt2/}}
+
+% References, hyperlinks, cross-references
+\usepackage[hidelinks]{hyperref}
+\usepackage{cleveref}
+
+% Units
+\usepackage{siunitx}
+
+% Bibliography (biblatex + biber)
+\usepackage{biblatex}
+\addbibresource{bt2.bib} % create refs.bib next to this file
+
+\begin{document}
+
+\section{BT2 - Estimación robusta de parámtetros}
+
+En esta sección tratamos la detección de rectas y otras formas geométricas características en el ámbito de las señales
+de tráfico, candidatas idóneas sobre el papel para ser detectadas mediante técnicas de estimación robusta de parámetros
+vistas en la asignatura. Comenzamos presentando el subconjunto de imágenes seleccionado para ejemplificar los métodos que
+aquí explicamos, mostrando el resultado la aplicación del pipeline propuesto en la sección anterior para la detección
+de líneas de borde. Además, proponemos otro método método de detección de bordes muy enfocado a este tipo de imágenes basado
+en la conversión del espacio de color RGB a HSV y la posterior umbralización del canal de saturación. A continuación, exponemos
+nuestra implementación en C para la detección de líneas y circunferencias con RANSAC y mostramos los resultados obtenidos.
+Finalmente, presentamos una serie de conclusiones y posibles líneas de trabajo futuras.
+
+\subsection{Dataset y preprocesamiento}
+
+Del conjunto de imágenes expuesto \cite{alibeigi2023zod} hemos seleccionado las siguientes 11 imágenes:
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img00.jpg}
+        \caption{Imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img01.jpg}
+        \caption{Imagen 1}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img02.jpg}
+        \caption{Imagen 2}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img03.jpg}
+        \caption{Imagen 3}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img04.jpg}
+        \caption{Imagen 4}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img05.jpg}
+        \caption{Imagen 5}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img06.jpg}
+        \caption{Imagen 6}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img07.jpg}
+        \caption{Imagen 7}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img08.jpg}
+        \caption{Imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img09.jpg}
+        \caption{Imagen 9}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{img10.jpg}
+        \caption{Imagen 10}
+    \end{subfigure}
+    \caption{Imágenes seleccionadas del conjunto ZOD para la detección de líneas de borde.}
+    \label{fig:bt2_dataset}
+\end{figure}
+
+Como vemos, son imágenes en entornos urbanos con múltiples señales de tráfico. Incluimos una imagen con señales de obras (Imagen 4), una sin edificios (Imagen 7), una con hojas y muchas sombras (Imagen 8) y una nocturna (Imagen 10) para contar con cierta variedad.
+
+A estas imágenes les aplicamos el siguiente preprocesamiento:
+\begin{itemize}
+    \item Corrección de la distorsión de Kannala Brandt.
+    \item Reescalado por un factor de 0'5.
+    \item Aplicación de un filtro de medianas de 5x5 para reducir el ruido.
+\end{itemize}
+El escalado se ha llevado a cabo para agilizar la salidas en el notebook. Ha sido llevado a cabo mediante la función \texttt{cv2.resize()} de OpenCV con el método de interpolación 
+\texttt{INTER\_AREA}, ideal para reducciones. El resultado de este preprocesamiento se muestra en la \cref{fig:bt2_preprocessed}. Las dimensiones finales de las imágenes son de 1924x1084 píxeles.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img00.jpg}
+        \caption{Imagen 0 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img01.jpg}
+        \caption{Imagen 1 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img02.jpg}
+        \caption{Imagen 2 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img03.jpg}
+        \caption{Imagen 3 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img04.jpg}
+        \caption{Imagen 4 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img05.jpg}
+        \caption{Imagen 5 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img06.jpg}
+        \caption{Imagen 6 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img07.jpg}
+        \caption{Imagen 7 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img08.jpg}
+        \caption{Imagen 8 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img09.jpg}
+        \caption{Imagen 9 preprocesada}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{pre_img10.jpg}
+        \caption{Imagen 10 preprocesada}
+    \end{subfigure}
+    \caption{Imágenes preprocesadas del conjunto ZOD para la detección de líneas de borde.}
+    \label{fig:bt2_preprocessed}
+\end{figure}
+
+\subsection{Detección de bordes}
+Para la detección de bordes hemos implementado dos métodos diferentes. El primero de ellos es el ya explicado en la
+sección anterior basado en la detección de bordes de Canny. La segunda aproximación es una segmentación por color seguida
+por una dilatación. En ambos casos, vamos a hacer una transformación previa de la imagen al espacio de color HSV.
+
+\subsubsection{Espacio de color HSV}
+El espacio de color HSV (Hue, Saturation, Value) \cite{wikipedia_hsv_modelo_color} es un modelo de color que representa los colores de una manera más intuitiva que el espacio RGB. 
+En este modelo cada canal representa:
+
+\begin{itemize}
+    \item Hue (Matiz): es una escala circular que representa el tipo de color (rojo, verde, azul, etc.) y se mide en grados (0-360°), aunque en OpenCV se escala a un rango de 0 a 179.
+    \item Saturation (Saturación): representa la intensidad del color, donde 0 es un tono de gris y 255 es el color completo.
+    \item Value (Valor): representa el brillo del color. Es el clásico concepto de luminosidad, donde 0 es negro y 255 es el color más brillante.
+\end{itemize}
+
+Las señales de tráfico, al tener que ser fácilmente detectables por el ojo humano en diversas condiciones de iluminación y clima, se diseñan con colores brillantes y contrastantes. 
+Esto las hace ideales para ser segmentadas en el espacio de color HSV, donde los cambios en la iluminación afectan menos a la percepción del color.
+Identificamos que todas las principales señales cuentan con el color rojo o el azul, incluso aquellas que encontramos en obras viales que sustituyen el color blanco por amarillo.
+
+% vemos lado a lado h y s para las imagenes 0, 8 y 10
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{hue_img00.jpg}
+        \caption{Hue imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{sat_img00.jpg}
+        \caption{Saturación imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{hue_img08.jpg}
+        \caption{Hue imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{sat_img08.jpg}
+        \caption{Saturación imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{hue_img10.jpg}
+        \caption{Hue imagen 10}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{sat_img10.jpg}
+        \caption{Saturación imagen 10}
+    \end{subfigure}
+    \caption{Canales de Hue y Saturación para las imágenes 0, 8 y 10.}
+    \label{fig:hue_vs_saturation}
+\end{figure}
+
+En la escala de matiz, el rojo se corresponde con valores cercanos a 0 y el azul a 120.
+Como vemos en la \cref{fig:hue_vs_saturation}, el canal de saturación resalta mucho más las señales de tráfico que el canal de matiz.
+Es una excepción la imagen nocturna (Imagen 10), donde el canal de saturación apenas resalta las señales debido a la baja iluminación y
+a la presencia de luces artificiales que distorsionan los colores. El canal de matiz, por otro lado, es prometedor en la imagen 10 al 
+resaltar las señales de la zona propiamente iluminada ya que estas están fabricadas con un material que permite reflejar la luz de manera más efectiva durante la noche.
+
+\subsubsection{Operador de Canny en espacio HSV}
+
+Aplicando el pipeline de detección de bordes basado en Canny explicado en la sección anterior, pero esta vez en el espacio HSV, 
+acabamos concluyendo que una ponderación de los canales H y S con pesos 0.25 y 0.75 respectivamente daba los mejores bordes.
+El proceso completo es el siguiente:
+
+\begin{enumerate}
+    \item Convertir la imagen de RGB a HSV.
+    \item Calcular la imagen ponderada: $I_{weighted} = 0.25 \cdot I_H + 0.75 \cdot I_S$.
+    \item Suavizar $I_{weighted}$ con un filtro Gaussiano de $\sigma=0.4$.
+    \item Aplicar el operador de Canny a $I_{weighted}$ con umbrales 150 y 250.
+\end{enumerate}
+
+El resultado de este proceso se muestra en la \cref{fig:bt2_canny_hsv}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img00.jpg}
+        \caption{Canny HSV imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img01.jpg}
+        \caption{Canny HSV imagen 1}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img02.jpg}
+        \caption{Canny HSV imagen 2}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img03.jpg}
+        \caption{Canny HSV imagen 3}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img04.jpg}
+        \caption{Canny HSV imagen 4}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img05.jpg}
+        \caption{Canny HSV imagen 5}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img06.jpg}
+        \caption{Canny HSV imagen 6}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img07.jpg}
+        \caption{Canny HSV imagen 7}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img08.jpg}
+        \caption{Canny HSV imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img09.jpg}
+        \caption{Canny HSV imagen 9}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{canny_hsv_img10.jpg}
+        \caption{Canny HSV imagen 10}
+    \end{subfigure}
+    \caption{Resultados del operador de Canny en espacio HSV para las imágenes seleccionadas. Los bordes se muestran dilatados para mayor visibilidad.}
+    \label{fig:bt2_canny_hsv}
+\end{figure}
+
+\subsubsection{Segmentación por color y dilatación}
+
+El segundo método de detección de bordes que hemos implementado se basa en un segmentación por color en el espacio HSV.
+Después de identificar que las señales de tráfico se caracterizan por colores azules y rojos muy saturados, hemos optado por umbralizar
+segmentar la imagen a partir de los rangos de matiz [165, 180] y [0, 15] para el rojo y [90, 130] para el azul. Además, aplicamos 
+una umbralización en el canal de saturación para eliminar colores poco saturados, estableciendo un umbral en 90. El proceso completo es:
+
+\begin{enumerate}
+    \item Convertir la imagen de RGB a HSV.
+    \item Crear una máscara binaria donde se cumplan las siguientes condiciones:
+    \begin{itemize}
+        \item El canal de saturación sea mayor que 90.
+        \item El canal de matiz esté en los rangos [165, 180] o [0, 15] (rojo) o [90, 130] (azul).
+    \end{itemize}
+    \item Eliminar las regiones pequeñas mediante un filtrado de componentes conexas con un umbral de 50 píxeles.
+    \item Aplicar una dilatación circular de un pixel de grosor y sustraer la máscara original para obtener los bordes.
+\end{enumerate}
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img00.jpg}
+        \caption{Segmentación dilatada imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img01.jpg}
+        \caption{Segmentación dilatada imagen 1}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img02.jpg}
+        \caption{Segmentación dilatada imagen 2}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img03.jpg}
+        \caption{Segmentación dilatada imagen 3}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img04.jpg}
+        \caption{Segmentación dilatada imagen 4}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img05.jpg}
+        \caption{Segmentación dilatada imagen 5}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img06.jpg}
+        \caption{Segmentación dilatada imagen 6}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img07.jpg}
+        \caption{Segmentación dilatada imagen 7}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img08.jpg}
+        \caption{Segmentación dilatada imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img09.jpg}
+        \caption{Segmentación dilatada imagen 9}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{seg_dilate_img10.jpg}
+        \caption{Segmentación dilatada imagen 10}
+    \end{subfigure}
+    \caption{Resultados de la segmentación por color y dilatación para las imágenes seleccionadas. Los bordes se muestran dilatados para mayor visibilidad.}
+    \label{fig:bt2_seg_dilate}
+\end{figure}
+
+\subsection{Comparación de resultados}
+
+Aunque ambos métodos ofrecen resultados aceptables, hemos observado que la segmentación por color y dilatación tiende a ser más robusta en condiciones de iluminación variables y en presencia de ruido.
+Lo que nos hace decantarnos por este método es el buen funcionamiento en la imagen nocturna (Imagen 10), donde el operador de Canny en espacio HSV no logra detectar los bordes de las señales de tráfico debido a la baja iluminación y al ruido introducido por las luces artificiales. 
+Esta segunda técnica también parece generar menos falsos positivos en ciertas imágenes con fondos complejos.
+
+\subsection{Detección de features con RANSAC}
+
+Para la detección de features en imágenes hemos creado una clase en Python llamada \texttt{FeatureExtractor}. 
+En particular, la clase sirve de interfaz para la detección de líneas, segmentos y circunferencias mediante las ideas de RANSAC.
+
+\subsubsection{Detección de rectas}
+
+Una vez contamos con una imagen de bordes, la propuesta de RANSAC es la siguiente:
+
+\begin{enumerate}
+    \item Seleccionar aleatoriamente dos puntos de borde para definir una línea candidata.
+    \item Calcular la distancia perpendicular de todos los puntos de borde a esta línea.
+    \item Contar el número de inliers, es decir, puntos cuya distancia a la línea es menor que un umbral predefinido.
+    \item Repetir los pasos 1-3 un número fijo de veces o hasta que se alcance un número suficiente de inliers.
+    \item Seleccionar la línea con el mayor número de inliers como la mejor estimación.
+    \item Opcionalmente, refinar la línea utilizando todos los inliers mediante un ajuste por mínimos cuadrados.
+\end{enumerate}
+
+Nosotros hemos decidido implementar nuestra versión en C, la cual puede ser consultada en \texttt{src/dgst/ffi/ransac.c} bajo el 
+nombre de \texttt{ransac\_line\_fitting}. El procedimiento implementado es el recién descrito. Los parámetros que necesita son:
+\begin{itemize}
+    \item input: Puntero a un array de puntos de borde.
+    \item width, height: Dimensiones de la imagen.
+    \item distance\_threshold: Umbral de distancia para considerar un punto como inlier.
+    \item max\_iterations: Número de iteraciones de RANSAC.
+    \item max\_lsq\_iterations: Número de iteraciones para el ajuste por mínimos cuadrados.
+    \item min\_inlier\_count: Número mínimo de inliers para aceptar una línea.
+\end{itemize}
+El resultado es una recta representada en forma ax + by + c = 0 mediante los parámetros a, b y c (en caso de que se haya encontrado alguna línea).
+Adicionalmente, como funcionalidad en python incluimos la posibilidad de eliminar los inliers de la recta detectada para facilitar la detección de 
+otras líneas en iteraciones posteriores.
+
+Aplicando este método a nuestras imágenes de bordes exigiendo un mínimo de 200 inliers en la primera iteración y un mínimo de 50 tras aplicar 
+RANSAC hasta 150 veces obtenemos imágenes como las mostradas en la \cref{fig:bt2_detected_lines}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{lines_image00.jpg}
+        \caption{Líneas detectadas imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{lines_image08.jpg}
+        \caption{Líneas detectadas imagen 8}
+    \end{subfigure}
+    \caption{Resultados de la detección de líneas mediante RANSAC en las imágenes 0 y 8.}
+    \label{fig:bt2_detected_lines}
+\end{figure}
+
+El algoritmo funciona bien detectando las rectas, pero resulta ser muy sensible al ruido. En cuanto hay una cantidad no demasiado alta de nubes de puntos alineados las rectas encontradas se ajustan a este ruido. Para solucionar esto, podríamos aumentar el número mínimo de inliers requerido, pero a costa de sacrificar algunas rectas más pequeñas. 
+
+Debido a que las señales de tráfico ocupan una sección relativamente pequeña de la imagen, proponemos aplicar RANSAC mediante un algoritmo de ventana deslizante. De esta forma, permitimos eliminar esas rectas que se ajustan al ruido y detectar bordes más pequeños al poder reducir el número mínimo de inliers necesarios para determinar una recta. Para ello, utilizamos un nuevo método extractor de características llamado  \texttt{windowed\_ransac\_line\_fitting}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{linesw_image00.jpg}
+        \caption{Líneas detectadas imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{linesw_image08.jpg}
+        \caption{Líneas detectadas imagen 8}
+    \end{subfigure}
+    \caption{Resultados de la detección de líneas mediante RANSAC en ventana deslizante en las imágenes 0 y 8.}
+    \label{fig:bt2_detected_lines}
+\end{figure}
+
+Como vemos, a pesar de utilizar en este caso un umbral de detección de inliers mayor (1.4 frente a 0.7 en el caso anterior) y un 
+requerimiento menor de inliers por iteración, el método de ventana deslizante consigue detectar las rectas relevantes de la imagen sin verse tan afectado por el ruido.
+
+\subsubsection{Detección de segmentos}
+
+Otro problema de la baja ocupancia de las señales es que las rectas cubren innecesariamente toda la imagen. 
+Sería ideal limitar la expresión de las mismas a los segmentos donde realmente hay señales.
+Es por esto que proponemos un método para inferir segmentos a partir de las rectas detectadas.
+A estos segmentos nosotros los llamamos 'soporte'. 
+El procedimiento, 
+implementado mediante el método \texttt{get\_line\_support} de la clase FeatureExtractor, es el siguiente:
+
+\begin{enumerate}
+    \item Se proporciona una recta en forma ax + by + c = 0, desactivando la eliminación de inliers tras la detección.
+    \item Se reobtienen los inliers de la línea en la imagen de bordes.
+    \item Los inliers se proyectan ortogonalmente sobre la recta para obtener sus coordenadas 1D.
+    \item Se calcula la densidad de inliers a lo largo de la línea.
+    \item Se identifica el segmento maximal con densidad que supere un umbral dado.
+\end{enumerate}
+
+Para llevar a cabo el último paso, hemos utilizado una versión adaptada del Algoritmo de Kadane \cite{kadane}, un algoritmo de programación dinámica que resuelve el 
+problema \textbf{Maximum Subarray Problem} de encontrar un subarray de suma máxima. Los pasos de esta adaptación son, partiendo de una serie de puntos en 1D (proyecciones sobre la recta):
+
+\begin{enumerate}
+    \item Se establece un umbral de densidad $\mu$ (número de inliers por unidad de longitud).
+    \item Se construye un array auxiliar A, de forma que A[i] representa la contribucón de densidad del i-ésimo intervalo $A_i = 1 - \mu\times(p_{i+1} - p_i)$
+    \item Se inicializan las variables:
+    \begin{itemize}
+        \item max\_sum = 0
+        \item current\_sum = 0
+        \item start\_index = 0
+        \item best\_start = -1
+        \item best\_end = -1
+    \end{itemize}
+    \item Se recorren los elementos del array A guardando las sumas acumuladas:
+    \begin{itemize}
+        \item current\_sum += A[i]
+        \item Si current\_sum > max\_sum:
+        \begin{itemize}
+            \item max\_sum = current\_sum
+            \item best\_start = start\_index
+            \item best\_end = i
+        \end{itemize}
+        \item Si current\_sum < 0:
+        \begin{itemize}
+            \item current\_sum = 0
+            \item start\_index = i + 1
+        \end{itemize}
+    \end{itemize}
+    \item Se devuelve el segmento [best\_start, best\_end].
+\end{enumerate}
+
+Una de las bondades de este algoritmo es que funciona en tiempo lineal con respecto al número de inliers. Podemos verlo en acción sobre una región de la imagen 0 en la \cref{fig:kadane_example}.
+
+\begin{figure}[H]
+    \centering        
+    \includegraphics[width=0.35\linewidth]{segments_image00.jpg}
+    \caption{Resultados de la detección de segmentos mediante RANSAC en las imagen 0.}
+    \label{fig:kadane_example}
+\end{figure}
+
+Los segmentos azules representan los soportes detectados. Al igual que hacíamos con las rectas,
+permitimos eliminar los inliers de los segmentos detectados para facilitar la detección de otros segmentos en iteraciones posteriores.
+El método permite incluso borrar los inliers de una recta para la que no se haya detectado soporte, lo que resulta muy útil para eliminar rectas que se ajustan al ruido.
+Incluso podemos especificar una longitud mínima para el soporte y una umbral de detección de inliers diferente a la de la recta para mayor flexibilidad.
+
+\subsubsection{Detección de circunferencias}
+
+La última característica de bordes que exploramos es la detección de circunferencias, ya que algunas señales de tráfico son circulares.
+El procedimiento es similar al de las rectas, pero en este caso seleccionamos tres puntos aleatoriamente para definir una circunferencia candidata.
+El resto de pasos son análogos a los descritos para las rectas. Hemos implementado este método en C bajo el nombre \texttt{ransac\_circle\_fitting}
+en el módulo \texttt{src/dgst/filters/ffi/ransac.c}.
+Los parámetros que necesita son:
+\begin{itemize}
+    \item input: Puntero a un array de puntos de borde.
+    \item width, height: Dimensiones de la imagen.
+    \item distance\_threshold: Umbral de distancia para considerar un punto como inlier.
+    \item max\_iterations: Número de iteraciones de RANSAC.
+    \item min\_inlier\_ratio: Proporción mínima de inliers respecto a la longitud del radio para aceptar una circunferencia.
+    \item min\_radius, max\_radius: Radios mínimo y máximo permitidos para las circunferencias.
+\end{itemize}
+
+Sobre este procedimiento, también resulta necesario acotar el radio máximo y mínimo de las circunferencias a detectar para así evitar encontrar circunferencias extremadamente pequeñas o tratar rectas como circunferencias de radio muy grande.
+Si bien en el caso de las rectas establecíamos un número máximo de inliers, en el caso de las circunferencias resulta más apropiado establecer una proporción mínima de inliers con respecto al radio de la circunferencia, pues un match de radio muy grande puede tener muchos inliers sin que realmente represente una circunferencia en la imagen. 
+Como orientación para este valor, el "número pi" para circunferencias discretas es aproximadamente $\sqrt{8}$. 
+La prueba de ello puede ser un ejercicio sencillo para el lector. 
+Por tanto, un valor razonable para la detección de circunferencias con este método debería ser aproximadamente $2 \pi_d r / r = 2 \pi_d \approx 5.6$. Esto suponiendo que el umbral de distancia para considerar un inlier es pequeño.
+
+Aplicando este método a nuestras imágenes de bordes con un umbral de distancia de 1 píxel, 10000 iteraciones y una proporción mínima de inliers de 4 obtenemos imágenes como las mostradas en la \cref{fig:bt2_detected_circles}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{circles_img02.jpg}
+        \caption{Circunferencias detectadas imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{circles_img09.jpg}
+        \caption{Circunferencias detectadas imagen 5}
+    \end{subfigure}
+    \caption{Resultados de la detección de circunferencias mediante RANSAC en las imágenes 2 y 9.}
+    \label{fig:bt2_detected_circles}
+\end{figure}
+
+Muchas de las circunferencias de nuestro dataset son detectadas. 
+No obstante, queda en evidencia que este método es muy sensible a la perspectiva ya que no se logra 
+captar las señales cuya normal se encuentra inclinada con respecto a la cámara (aparecen como elipses). 
+Sería una adición interesante la detección de este tipo de objetos y se plantea como una ampliación futura de este trabajo.
+
+\subsubsection{Puesta en común de los métodos}
+
+Finalmente, proponemos un pipeline que combina todos los métodos anteriores para este tipo de imágenes:
+
+\begin{enumerate}
+    \item Preprocesamiento de la imagen (corrección de distorsión, reescalado, filtro de medianas).
+    \item Detección de bordes mediante segmentación por color y dilatación.
+    \item Detección de líneas mediante RANSAC en ventana deslizante sin eliminación de inliers.
+    \item Detección de segmentos para cada línea detectada.
+    \item Detección de circunferencias.
+    \item Repetir los pasos 3-5 relajando los criterios de detección para encontrar más características.
+\end{enumerate}
+
+Podemos ver los resultados de este pipeline en la \cref{fig:bt2_final_pipeline}.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result00.jpg}
+        \caption{Características detectadas imagen 0}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result01.jpg}
+        \caption{Características detectadas imagen 1}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result02.jpg}
+        \caption{Características detectadas imagen 2}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result03.jpg}
+        \caption{Características detectadas imagen 3}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result04.jpg}
+        \caption{Características detectadas imagen 4}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result05.jpg}
+        \caption{Características detectadas imagen 5}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result06.jpg}
+        \caption{Características detectadas imagen 6}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result07.jpg}
+        \caption{Características detectadas imagen 7}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result08.jpg}
+        \caption{Características detectadas imagen 8}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result09.jpg}
+        \caption{Características detectadas imagen 9}
+    \end{subfigure}
+    \begin{subfigure}{0.3\textwidth}
+        \includegraphics[width=\linewidth]{final_result10.jpg}
+        \caption{Características detectadas imagen 10}
+    \end{subfigure}
+    \caption{Resultados del pipeline completo de detección de características.}
+    \label{fig:bt2_final_pipeline}
+\end{figure}
+
+\subsection{Análisis de RANSAC para la detección de rectas}
+
+En los apartados anteriores establecíamos los parámetros para RANSAC de forma manual para conseguir resultados aceptables. 
+Esta sección, sin afán de ser un análisis exhaustivo ni completo pues la convergencia de estos métodos 
+depende en gran medida en los elementos que se puedan encontrar en cada imagen, puede orientarnos a la hora de 
+calibrar los parámetros en un trabajo futuro.
+En concreto, vamos a centrarnos en el algoritmo de detección de rectas.
+
+\subsubsection{Análisis de rendimiento}
+
+En primer lugar vamos a analizar el tiempo de ejecución del algoritmo. 
+Sabemos que su complejidad temporal teórica es $O(it\times k)$ donde $it$ es el número de iteraciones 
+y $k$ el número de píxeles de borde.
+Para comprobarlo, hemos medido el tiempo de ejecución en imágenes 1000x1000 con diferentes cantidades de píxeles de borde y 
+hemos obtenido las siguientes gráficas:
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{ransacvsedges.png}
+        \caption{Tiempo medio de ejecución por iteración vs número de píxeles de borde}
+    \end{subfigure}
+    \begin{subfigure}{0.45\textwidth}
+        \includegraphics[width=\linewidth]{ransacppvsnp.png}
+        \caption{Tiempo medio de ejecución por iteración y número de píxeles de borde vs número de píxeles de borde}
+    \end{subfigure}
+    \caption{Análisis del tiempo de ejecución del algoritmo RANSAC para la detección de rectas.}
+    \label{fig:bt2_ransac_time_analysis}
+\end{figure}
+
+Resulta evidente la relación lineal entre el número de píxeles de borde y el tiempo de ejecución por iteración, confirmando la complejidad teórica del algoritmo.
+En una ejecución monohilo en un equipo con procesador AMD Ryzen 7 5800H, el tiempo medio por iteración y píxel de borde es de aproximadamente $0.03$ microsegundos.
+
+\subsubsection{Análisis de convergencia}
+
+Estudiar cuánto tarda en converger el algoritmo es algo más complicado ya que depende en mayor medida de los elementos que puedan estar presentes en la imagen. 
+Para poder concluir cuántas iteraciones son necesarias para detectar una recta vamos a hacer lo siguiente:
+
+\begin{enumerate}
+    \item Establecer un valor inicial de max\_iterations.
+    \item Ejecutar RANSAC 100 veces.
+    \item Almacenar la tasa de éxito (número de veces que se detecta una recta con al menos 150 inliers).
+    \item Aumentar max\_iterations en un 10\%.
+    \item Volver al paso 2.
+\end{enumerate}
+Podemos repetir este procedimiento hasta obtener una tasa de éxito superior al 90\% o hasta superar las 1000 iteraciones.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.45\linewidth]{ramo.png}
+    \caption{Convergencia del algoritmo RANSAC para la detección de rectas.}
+    \label{fig:bt2_ransac_convergence}
+\end{figure}
+
+Buscando una recta con 150 inliers, que para los rangos en los que estamos trabajando se considera un número alto, 
+vemos como en las imágenes 7, 2, 8, 0 y 3 ransac encuentra dicha recta el 80\% 
+de las veces en menos de 400 iteraciones. Para los casos en los que no existe dicha recta, 
+como en la imagen 1 o la imagen 10, la gráfica se muestra como se esperaba. 
+
+En cualquier caso, en todas las imágenes en las que sí existe dicha recta parece encontrarse un 20\% de las ocasiones
+ en las 100 primeras iteraciones. Este hecho nos va a ayudar a establecer un número mínimo de iteraciones necesario 
+ para detectar una recta. 
+
+Sea $X$ la variable aleatoria que modela la cantidad de iteraciones necesarias para detectar una recta que 
+cumpla las condiciones en el caso de que exista. $X$ sigue entonces una distribución binomial con probabilidad 
+de éxito de $p=20\%/100 = 2\times 10^{-3}$. Entonces:
+$P(X\leq n)=0.95 \Leftrightarrow 1-(1-p)^n > 0.95 \Leftrightarrow (1-2\times 10^{-3})^n > 0.05 \Leftrightarrow n\ln{(1-2\times 10^{-3})} > \ln{0.05} \Leftrightarrow n>1497$.
+
+En conclusión, estableciendo el máximo de número de ejecuciones a 1500, en caso de que exista una recta que cumpla 
+las condiciones que buscamos, será encontrada el 95\% de las veces.
+Para imágenes como las vistas en este ducumento, que cuentan con no más de 10000 píxeles de borde, 
+y con el análisis previo podemos establecer un tiempo estimado para encontrar una recta de:
+
+$$
+3\times 10^{-8}\frac{s}{it}\times 1500 \frac{it}{recta} = 4.5\times 10^{-5} \frac{s}{recta}
+$$
+
+Por tanto, el tiempo de cómputo estimado por recta es de 0.045 milisegundos, un tiempo más que asumible
+ teniendo en cuenta las condiciones planteadas. Para usos posteriores se propone:
+\begin{enumerate}
+    \item Comenzar con un número de inliers excesivo.
+    \item Aplicar RANSAC con 1500 iteraciones.
+    \item Si no se encuentra una recta, decrementar el número de inliers.
+    \item Repetir 2 hasta encontrar una recta o llegar a un número mínimo de inliers.
+\end{enumerate}
+
+Aun comenzando con 300 inliers (lo que correspondería a más o menos un tercio de la longitud
+ de la imagen con la que trabajamos), estableciendo un decremento de 2 inliers por iteración y
+  suponiendo que encontramos de media una recta por iteración, hablamos un tiempo de cómputo de
+   unos 6 milisegundos. Un tiempo corto aún procesando video en directo.
+
+
+
+
+\end{document}
