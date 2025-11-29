@@ -1,6 +1,7 @@
 
-import numpy as np
 import cv2
+import numpy as np
+
 
 def scale_inter_area(image: np.ndarray, scale_factor: float) -> np.ndarray:
     """

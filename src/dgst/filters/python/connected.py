@@ -1,5 +1,6 @@
-import numpy as np
 import cv2 as cv
+import numpy as np
+
 
 # Eliminamos las componentes conexas pequeñas en las máscaras de señales para quitar ruido.
 def filter_connected_components(mask, min_size=20):

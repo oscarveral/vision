@@ -3,7 +3,7 @@ import pytest
 import cv2
 import os
 
-from dgst.ffi.wrapper import gaussian_filter
+from dgst.filters.ffi.wrapper import gaussian_filter
 
 TEST_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "images/lenna.png")
 

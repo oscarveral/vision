@@ -1,6 +1,8 @@
 import cv2
+
+from dgst.utils.exceptions import ValidationError
 from dgst.utils.loader import Image
-from dgst.utils.validation import ImageValidator, ValidationError
+
 
 class ImageFuser:
 
@@ -10,8 +12,11 @@ class ImageFuser:
     def subtract(self, img1: Image, img2: Image) -> Image:
         """Subtract two images pixel-wise."""
         # Precondition validation
-        ImageValidator.validate_data_not_none(img1, "ImageFuser.subtract")
-        ImageValidator.validate_data_not_none(img2, "ImageFuser.subtract")
+        # Precondition validation
+        if img1.data is None:
+            raise ValidationError("ImageFuser.subtract: Image.data is None")
+        if img2.data is None:
+            raise ValidationError("ImageFuser.subtract: Image.data is None")
         
         if img1.data.shape != img2.data.shape:
             raise ValidationError(
@@ -51,8 +56,11 @@ class ImageFuser:
     def bitwise_and(self, img1: Image, img2: Image) -> Image:
         """Perform bitwise AND operation between two images."""
         # Precondition validation
-        ImageValidator.validate_data_not_none(img1, "ImageFuser.bitwise_and")
-        ImageValidator.validate_data_not_none(img2, "ImageFuser.bitwise_and")
+        # Precondition validation
+        if img1.data is None:
+            raise ValidationError("ImageFuser.bitwise_and: Image.data is None")
+        if img2.data is None:
+            raise ValidationError("ImageFuser.bitwise_and: Image.data is None")
         
         if img1.data.shape != img2.data.shape:
             raise ValidationError(
@@ -92,8 +100,11 @@ class ImageFuser:
     def bitwise_or(self, img1: Image, img2: Image) -> Image:
         """Perform bitwise OR operation between two images."""
         # Precondition validation
-        ImageValidator.validate_data_not_none(img1, "ImageFuser.bitwise_or")
-        ImageValidator.validate_data_not_none(img2, "ImageFuser.bitwise_or")
+        # Precondition validation
+        if img1.data is None:
+            raise ValidationError("ImageFuser.bitwise_or: Image.data is None")
+        if img2.data is None:
+            raise ValidationError("ImageFuser.bitwise_or: Image.data is None")
         
         data1 = img1.data.copy()
         data2 = img2.data.copy()

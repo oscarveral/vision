@@ -1,61 +1,74 @@
-import numpy as np
 import cv2
-from pyparsing import Optional
+import numpy as np
+from dataclasses import dataclass
+from dgst.filters.ffi import ransac_circle_fitting, ransac_line_fitting
+from dgst.utils.loader import Image
 
-from dgst.filters.ffi import ransac_line_fitting, ransac_circle_fitting
-from dgst.utils.loader import Image, ImageFormat
+
+@dataclass
+class RansacLineParams:
+    """Parameters for RANSAC line fitting."""
+    max_iterations: int
+    distance_threshold: float
+    min_inliers: int
+    max_lsq_iterations: int = 0
+
+
+@dataclass
+class RansacCircleParams:
+    """Parameters for RANSAC circle fitting."""
+    max_iterations: int
+    distance_threshold: float
+    min_inlier_ratio: float
+    min_radius: float = 0.0
+    max_radius: float = 0.0
+
 
 class FeatureExtractor:
     """Image features extractor."""
 
     def __init__(self, edge_image: Image):
-        if edge_image.format != ImageFormat.BOOLEAN:
+        if edge_image.data.dtype != np.bool_:
             raise ValueError("Edge image must be of type bool.")
         if len(edge_image.data.shape) != 2:
             raise ValueError("Edge image must be a 2D array.")
         self._edge_image = edge_image.clone()
         self._original_edge_image = edge_image.clone()
-        self._lines = []
-        self._segments = []
-        self._circles = []
+        self._lines: list[tuple] = []
+        self._segments: list[tuple] = []
+        self._circles: list[tuple] = []
 
     def ransac_line_fitting(
         self,
-        max_iterations: int,
-        distance_threshold: float,
-        min_inliers: int,
-        max_lsq_iterations: int = 0,
+        params: RansacLineParams,
         erase: bool = False,
-    ) -> tuple:
+    ) -> tuple | None:
         """Fit a line to edge points using RANSAC.
 
         Args:
-            max_iterations: Number of RANSAC iterations
-            distance_threshold: Distance threshold to consider a point as an inlier
-            min_inliers: Minimum number of inliers to accept a model
-            max_lsq_iterations: Number of least squares refinement iterations. Set to 0 to skip refinement.
+            params: RANSAC line fitting parameters.
             erase: If True, remove the inliers of the detected line from the edge image.
 
         Returns:
             A tuple (a, b, c) representing the line equation ax + by + c = 0
         """
-        if min_inliers <= 0:
+        if params.min_inliers <= 0:
             raise ValueError("Minimum number of inliers must be positive.")
-        if max_lsq_iterations < 0:
+        if params.max_lsq_iterations < 0:
             raise ValueError(
                 "Maximum number of least squares iterations cannot be negative."
             )
-        if max_iterations <= 0:
+        if params.max_iterations <= 0:
             raise ValueError("Maximum number of iterations must be positive.")
-        if distance_threshold <= 0:
+        if params.distance_threshold <= 0:
             raise ValueError("Distance threshold must be positive.")
 
         result = ransac_line_fitting(
             edge_map=self._edge_image.data,
-            max_iterations=max_iterations,
-            max_lsq_iterations=max_lsq_iterations,
-            distance_threshold=distance_threshold,
-            min_inlier_count=min_inliers,
+            max_iterations=params.max_iterations,
+            max_lsq_iterations=params.max_lsq_iterations,
+            distance_threshold=params.distance_threshold,
+            min_inlier_count=params.min_inliers,
         )
 
         if result is None:
@@ -64,7 +77,7 @@ class FeatureExtractor:
         self._lines.append(result)
 
         if erase:
-            self._remove_line(result, distance_threshold)
+            self._remove_line(result, params.distance_threshold)
 
         return result
 
@@ -99,10 +112,7 @@ class FeatureExtractor:
         self,
         window_size: int,
         step: int,
-        max_iterations: int,
-        distance_threshold: float,
-        min_inliers: int,
-        max_lsq_iterations: int = 0,
+        params: RansacLineParams,
         erase: bool = False,
     ) -> list:
         """Apply RANSAC line fitting in a sliding window fashion.
@@ -110,10 +120,7 @@ class FeatureExtractor:
         Args:
             window_size: Size of the sliding window (square).
             step: Step size for sliding the window.
-            max_iterations: Number of RANSAC iterations per window.
-            distance_threshold: Distance threshold to consider a point as an inlier.
-            min_inliers: Minimum number of inliers to accept a model.
-            max_lsq_iterations: Number of least squares refinement iterations. Set to 0 to skip refinement.
+            params: RANSAC line fitting parameters.
             erase: If True, remove the inliers of the detected lines from the edge image.
 
         Returns:
@@ -123,13 +130,13 @@ class FeatureExtractor:
             raise ValueError("Window size must be positive.")
         if step <= 0:
             raise ValueError("Step size must be positive.")
-        if max_iterations <= 0:
+        if params.max_iterations <= 0:
             raise ValueError("Maximum number of iterations must be positive.")
-        if distance_threshold <= 0:
+        if params.distance_threshold <= 0:
             raise ValueError("Distance threshold must be positive.")
-        if min_inliers <= 0:
+        if params.min_inliers <= 0:
             raise ValueError("Minimum number of inliers must be positive.")
-        if max_lsq_iterations < 0:
+        if params.max_lsq_iterations < 0:
             raise ValueError(
                 "Maximum number of least squares iterations cannot be negative."
             )
@@ -143,10 +150,10 @@ class FeatureExtractor:
                 # Call RANSAC directly on the window
                 line = ransac_line_fitting(
                     edge_map=window,
-                    max_iterations=max_iterations,
-                    max_lsq_iterations=max_lsq_iterations,
-                    distance_threshold=distance_threshold,
-                    min_inlier_count=min_inliers,
+                    max_iterations=params.max_iterations,
+                    max_lsq_iterations=params.max_lsq_iterations,
+                    distance_threshold=params.distance_threshold,
+                    min_inlier_count=params.min_inliers,
                 )
                 
                 if line is not None:
@@ -156,7 +163,7 @@ class FeatureExtractor:
                     adjusted_line = (a, b, adjusted_c)
                     detected_lines.append(adjusted_line)
                     if erase:
-                        self._remove_line(adjusted_line, distance_threshold)
+                        self._remove_line(adjusted_line, params.distance_threshold)
 
         self._lines.extend(detected_lines)    
         return detected_lines
@@ -168,7 +175,7 @@ class FeatureExtractor:
         density_threshold: float,
         min_segment_length: float = 0.0,
         erase: bool = False,
-    ) -> np.ndarray:
+    ) -> tuple[list[float], list[float]] | None:
         """Get the support points of a given line from the edge image. Takes only the pixels
         that satisfy the line equation. Must be called after fitting a line with RANSAC
         with erase=False.
@@ -176,7 +183,8 @@ class FeatureExtractor:
         Args:
             line: A tuple (a, b, c) representing the line equation ax + by + c = 0
             distance_threshold: Maximum distance from the line to consider a point as support.
-            density_threshold: Proportion of points that must satisfy the line equation to be considered a valid segment.
+            density_threshold: Proportion of points that must satisfy the line equation 
+                to be considered a valid segment.
             min_segment_length: Minimum length of the segment to be considered valid. Set to 0 to skip this check.
             erase: If True, remove the support points from the edge image.
         Returns:
@@ -210,7 +218,7 @@ class FeatureExtractor:
         distances = distances[inlier_mask]
         x_proj = xx - distances * a_norm
         y_proj = yy - distances * b_norm
-        projections = np.array(list(zip(x_proj, y_proj)))
+        projections = np.array(list(zip(x_proj, y_proj, strict=False)))
 
         if len(xx) < 2:
             return None  # No support points
@@ -286,24 +294,19 @@ class FeatureExtractor:
 
     def ransac_segment_fitting(
         self,
-        max_iterations: int,
-        distance_threshold_line: float,
+        params: RansacLineParams,
         distance_threshold_segment: float,
         density_threshold: float,
-        min_inliers: int,
-        max_lsq_iterations: int = 0,
         min_segment_length: float = 0.0,
         erase: bool = False,
     ) -> tuple:
         """Fit a line to edge points using RANSAC and get its support segment.
 
         Args:
-            max_iterations: Number of RANSAC iterations
-            distance_threshold_line: Distance threshold to consider a point as an inlier of the line
+            params: RANSAC line fitting parameters.
             distance_threshold_segment: Distance threshold to consider a point as support of the segment
-            density_threshold: Proportion of points that must satisfy the line equation to be considered a valid segment.
-            min_inliers: Minimum number of inliers to accept a model
-            max_lsq_iterations: Number of least squares refinement iterations. Set to 0 to skip refinement.
+            density_threshold: Proportion of points that must satisfy the line equation 
+                to be considered a valid segment.
             min_segment_length: Minimum length of the segment to be considered valid. Set to 0 to skip this check.
             erase: If True two case are possible:
                 If a no support segment is found, remove the inliers of the detected line from the edge image.
@@ -315,10 +318,7 @@ class FeatureExtractor:
         """
         # First, fit a line using RANSAC
         line = self.ransac_line_fitting(
-            max_iterations=max_iterations,
-            distance_threshold=distance_threshold_line,
-            min_inliers=min_inliers,
-            max_lsq_iterations=max_lsq_iterations,
+            params=params,
             erase=False,
         )
 
@@ -337,7 +337,7 @@ class FeatureExtractor:
 
         if segment is None and erase:
             # Remove inliers of the detected line from the edge image
-            self._remove_line(line, distance_threshold_line)
+            self._remove_line(line, params.distance_threshold)
 
         return line, segment
 
@@ -361,40 +361,32 @@ class FeatureExtractor:
 
     def ransac_circle_fitting(
         self,
-        max_iterations: int,
-        distance_threshold: float,
-        min_inlier_ratio: float,
-        min_radius: float = 0.0,
-        max_radius: float = 0.0,
+        params: RansacCircleParams,
         erase: bool = False,
-    ) -> tuple:
+    ) -> tuple | None:
         """Fit a circle to edge points using RANSAC.
 
         Args:
-            max_iterations: Number of RANSAC iterations
-            distance_threshold: Distance threshold to consider a point as an inlier
-            min_inlier_ratio: Minimum ratio of inliers to radius to accept a model. Recommended minimum is 3.
-            min_radius: Minimum radius of the circle to be detected. Set to 0 to skip this check.
-            max_radius: Maximum radius of the circle to be detected. Set to 0 to skip this check.
+            params: RANSAC circle fitting parameters.
             erase: If True, remove the inliers of the detected circle from the edge image.
 
         Returns:
             A tuple (x_center, y_center, radius) representing the circle parameters.
         """
-        if min_inlier_ratio <= 0:
+        if params.min_inlier_ratio <= 0:
             raise ValueError("Minimum inlier ratio must be positive.")
-        if max_iterations <= 0:
+        if params.max_iterations <= 0:
             raise ValueError("Maximum number of iterations must be positive.")
-        if distance_threshold <= 0:
+        if params.distance_threshold <= 0:
             raise ValueError("Distance threshold must be positive.")
 
         result = ransac_circle_fitting(
             edge_map=self._edge_image.data,
-            max_iterations=max_iterations,
-            distance_threshold=distance_threshold,
-            min_inlier_ratio=min_inlier_ratio,
-            min_radius=min_radius,
-            max_radius=max_radius,
+            max_iterations=params.max_iterations,
+            distance_threshold=params.distance_threshold,
+            min_inlier_ratio=params.min_inlier_ratio,
+            min_radius=params.min_radius,
+            max_radius=params.max_radius,
         )
 
         if result is None:
@@ -403,7 +395,7 @@ class FeatureExtractor:
         self._circles.append(result)
 
         if erase:
-            self._remove_circle(result, distance_threshold)
+            self._remove_circle(result, params.distance_threshold)
 
         return result
 
@@ -434,14 +426,24 @@ class FeatureExtractor:
         inlier_mask = np.abs(distances - radius) <= distance_threshold
         self._edge_image.data[yy[inlier_mask], xx[inlier_mask]] = False
 
+    def _to_bgr_image(self, image: Image) -> np.ndarray:
+        """Convert an image to BGR format for painting.
+        
+        Args:
+            image: The image to convert.
+            
+        Returns:
+            A BGR numpy array.
+        """
+        if image.data.ndim == 2:
+            # Convert boolean to uint8 first, then to BGR
+            image_with_features = (image.data * 255).astype(np.uint8)
+            return cv2.cvtColor(image_with_features, cv2.COLOR_GRAY2BGR)
+        return image.data.copy()
 
     def paint_lines_on_image(self, color='red'):
         copy = self._original_edge_image.clone()
-        image_with_lines = copy.data
-        if (copy.data.ndim == 2):
-            # Convert boolean to uint8 first, then to BGR
-            image_with_lines = (copy.data * 255).astype(np.uint8)
-            image_with_lines = cv2.cvtColor(image_with_lines, cv2.COLOR_GRAY2BGR)
+        image_with_lines = self._to_bgr_image(copy)
         height, width = image_with_lines.shape[:2]
         for line in self._lines:
             a, b, c = line
@@ -479,11 +481,7 @@ class FeatureExtractor:
 
     def paint_segments_on_image(self, color='blue'):
         copy = self._original_edge_image.clone()
-        image_with_segments = copy.data
-        if (copy.data.ndim == 2):
-            # Convert boolean to uint8 first, then to BGR
-            image_with_segments = (copy.data * 255).astype(np.uint8)
-            image_with_segments = cv2.cvtColor(image_with_segments, cv2.COLOR_GRAY2BGR)
+        image_with_segments = self._to_bgr_image(copy)
         height, width = image_with_segments.shape[:2]
         for segment in self._segments:
             (start_x, start_y), (end_x, end_y) = segment
@@ -493,16 +491,9 @@ class FeatureExtractor:
         copy.data = image_with_segments
         return copy
     
-    def paint_circles_on_image(self, color='green', base_image: Optional[Image] = None):
-        if base_image is None:
-            copy = self._original_edge_image.clone()
-        else:
-            copy = base_image.clone()
-        image_with_circles = copy.data
-        if (copy.data.ndim == 2):
-            # Convert boolean to uint8 first, then to BGR
-            image_with_circles = (copy.data * 255).astype(np.uint8)
-            image_with_circles = cv2.cvtColor(image_with_circles, cv2.COLOR_GRAY2BGR)
+    def paint_circles_on_image(self, color='green', base_image: Image | None = None):
+        copy = self._original_edge_image.clone() if base_image is None else base_image.clone()
+        image_with_circles = self._to_bgr_image(copy)
         height, width = image_with_circles.shape[:2]
         for circle in self._circles:
             cx, cy, r = circle

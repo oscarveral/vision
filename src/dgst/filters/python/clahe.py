@@ -1,5 +1,5 @@
-import numpy as np
 import cv2
+import numpy as np
 
 
 def clahe_filter(
@@ -28,10 +28,7 @@ def clahe_filter(
 
     # Prepare uint8 image
     if arr.dtype == np.float32 or arr.dtype == np.float64:
-        if arr.max() <= 1.0:
-            img_u8 = (arr * 255.0).astype(np.uint8)
-        else:
-            img_u8 = np.clip(arr, 0, 255).astype(np.uint8)
+        img_u8 = (arr * 255.0).astype(np.uint8) if arr.max() <= 1.0 else np.clip(arr, 0, 255).astype(np.uint8)
     elif arr.dtype == np.uint8:
         img_u8 = arr
     else:
@@ -49,8 +46,8 @@ def clahe_filter(
     # Color image: convert to LAB, apply to L channel
     if img_u8.ndim == 3 and img_u8.shape[2] == 3:
         lab = cv2.cvtColor(img_u8, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        l_eq = clahe.apply(l)
+        l_channel, a, b = cv2.split(lab)
+        l_eq = clahe.apply(l_channel)
         lab_eq = cv2.merge((l_eq, a, b))
         result = cv2.cvtColor(lab_eq, cv2.COLOR_LAB2BGR)
         return result

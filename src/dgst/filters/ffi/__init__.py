@@ -11,20 +11,20 @@ if os.path.exists(makefile_path):
     try:
         subprocess.run(["make", "--quiet", "-C", makefile_dir], check=True)
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Makefile execution failed: {e}")
+        raise RuntimeError(f"Makefile execution failed: {e}") from e
 else:
     raise FileNotFoundError(f"Makefile not found in {makefile_dir}")
 
-from .wrapper import (
+from .wrapper import (  # noqa: E402
     box_filter,
-    gaussian_filter,
     canny_edge_detection,
-    kannala_brandt_undistort,
+    gaussian_filter,
     kannala_brandt_map_points_to_undistorted,
+    kannala_brandt_undistort,
     phase_congruency,
-    threshold_filter,
-    ransac_line_fitting,
     ransac_circle_fitting,
+    ransac_line_fitting,
+    threshold_filter,
 )
 
 __all__ = [

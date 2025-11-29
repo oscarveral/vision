@@ -1,5 +1,6 @@
-import numpy as np
 import math
+
+import numpy as np
 
 
 def phase_congruency(
@@ -85,7 +86,7 @@ def phase_congruency(
         )  # amplitude sum per orientation
 
         wavelength = min_wavelength
-        for s in range(nscale):
+        for _s in range(nscale):
             fo = 1.0 / wavelength
             log_rad = np.log(radius / fo)
             radial = np.exp(-(log_rad**2) / (2 * (np.log(sigma_onf) ** 2)))

@@ -1,13 +1,14 @@
 
-import os
-from typing import List, Optional, Dict, Any
-import cv2
-import json
-import numpy as np
-import enum
-from dgst import DATA_ROOT
 import copy
+import json
+import os
 from datetime import datetime
+from typing import Any
+
+import cv2
+import numpy as np
+
+from dgst import DATA_ROOT
 
 
 class RegionOfInterest:
@@ -45,27 +46,27 @@ class Calibration:
         if "FC" in calibration_data:
             fc = calibration_data["FC"]
             self.camera_type = fc.get("camera_type")
-            self.intrinsics = np.array(fc.get("intrinsics", []))
-            self.extrinsics = np.array(fc.get("extrinsics", []))
-            self.lidar_extrinsics = np.array(fc.get("lidar_extrinsics", []))
-            self.image_dimensions = fc.get("image_dimensions", [])
-            self.distortion = fc.get("distortion", [])
-            self.field_of_view = fc.get("field_of_view", [])
+            self.intrinsics = np.array(fc.get("intrinsics", [])) if fc.get("intrinsics") is not None else None
+            self.extrinsics = np.array(fc.get("extrinsics", [])) if fc.get("extrinsics") is not None else None
+            self.lidar_extrinsics = (
+                np.array(fc.get("lidar_extrinsics", [])) 
+                if fc.get("lidar_extrinsics") is not None 
+                else None
+            )
+            self.image_dimensions = fc.get("image_dimensions")
+            self.distortion = fc.get("distortion")
+            self.field_of_view = fc.get("field_of_view")
             self.xi = fc.get("xi")
-            self.undistortion = fc.get("undistortion", [])
-        else:
-            self.camera_type = None
-            self.intrinsics = None
-            self.extrinsics = None
-            self.lidar_extrinsics = None
-            self.image_dimensions = None
-            self.distortion = None
-            self.field_of_view = None
-            self.xi = None
-            self.undistortion = None
+            self.undistortion = fc.get("undistortion")
 
     def __repr__(self):
-        return f"Calibration(camera_type={self.camera_type}, image_dimensions={self.image_dimensions}, intrinsics={self.intrinsics}, distortion={self.distortion}, undistortion={self.undistortion})"
+        return (
+            f"Calibration(camera_type={self.camera_type}, "
+            f"image_dimensions={self.image_dimensions}, "
+            f"intrinsics={self.intrinsics}, "
+            f"distortion={self.distortion}, "
+            f"undistortion={self.undistortion})"
+        )
 
     def clone(self) -> "Calibration":
         """Return a deep copy of this Calibration."""
@@ -118,23 +119,18 @@ class Calibration:
 
         return cloned
 
-class ImageFormat(enum.Enum):
-    BGR = 1
-    GRAYSCALE = 2
-    BOOLEAN = 3
-    HSV = 4
+
 
 
 class ProcessingMetadata:
     """Metadata tracking for image processing operations."""
     
     def __init__(self):
-        self.steps: List[Dict[str, Any]] = []
-        self.original_shape: Optional[tuple] = None
-        self.original_format: Optional[ImageFormat] = None
+        self.steps: list[dict[str, Any]] = []
+        self.original_shape: tuple | None = None
         self.creation_time: str = datetime.now().isoformat()
     
-    def add_step(self, step_info: Dict[str, Any]) -> None:
+    def add_step(self, step_info: dict[str, Any]) -> None:
         """Add a processing step to the metadata."""
         step_info['timestamp'] = datetime.now().isoformat()
         self.steps.append(step_info)
@@ -143,7 +139,7 @@ class ProcessingMetadata:
         """Get the total number of processing steps."""
         return len(self.steps)
     
-    def get_last_step(self) -> Optional[Dict[str, Any]]:
+    def get_last_step(self) -> dict[str, Any] | None:
         """Get information about the last processing step."""
         return self.steps[-1] if self.steps else None
     
@@ -152,7 +148,6 @@ class ProcessingMetadata:
         new_metadata = ProcessingMetadata()
         new_metadata.steps = copy.deepcopy(self.steps)
         new_metadata.original_shape = self.original_shape
-        new_metadata.original_format = self.original_format
         new_metadata.creation_time = self.creation_time
         return new_metadata
     
@@ -164,31 +159,68 @@ class Image:
     def __init__(
         self, 
         data: np.ndarray, 
-        rois: list[RegionOfInterest], 
-        calibration: Calibration = None, 
-        format: ImageFormat = ImageFormat.BGR
+        rois: list[RegionOfInterest] | None = None, 
+        calibration: Calibration | None = None, 
     ):
         self.data = data
-        self.rois = rois
+        self.rois = rois if rois is not None else []
         self.calibration = calibration
-        self.format = format
-        self.hsv_channels: Optional[List[np.ndarray]] = None
         self.metadata: ProcessingMetadata = ProcessingMetadata()
         
         # Store original properties in metadata
         if data is not None:
             self.metadata.original_shape = data.shape
-            self.metadata.original_format = format
+
+    @property
+    def is_grayscale(self) -> bool:
+        """Check if image is grayscale (2D or 3D with 1 channel)."""
+        if self.data is None:
+            return False
+        return self.data.ndim == 2 or (self.data.ndim == 3 and self.data.shape[2] == 1)
+
+    @property
+    def is_color(self) -> bool:
+        """Check if image is color (3D with 3 channels)."""
+        if self.data is None:
+            return False
+        return self.data.ndim == 3 and self.data.shape[2] == 3
+
+    @property
+    def num_channels(self) -> int:
+        """Get number of channels."""
+        if self.data is None:
+            return 0
+        if self.data.ndim == 2:
+            return 1
+        return self.data.shape[2]
+
+    def to_grayscale(self) -> "Image":
+        """Convert image to grayscale in-place."""
+        if self.data is None:
+            return self
+            
+        if self.is_color:
+            self.data = cv2.cvtColor(self.data, cv2.COLOR_BGR2GRAY)
+        return self
+
+    def to_bgr(self) -> "Image":
+        """Convert image to BGR in-place."""
+        if self.data is None:
+            return self
+            
+        if self.is_grayscale:
+            self.data = cv2.cvtColor(self.data, cv2.COLOR_GRAY2BGR)
+        return self
 
     def show_rois(self):
-
-        if self.data is None or self.rois is None:
+        if self.data is None or not self.rois:
             return
         
-        if self.format != ImageFormat.BGR and self.format != ImageFormat.GRAYSCALE:
-            raise ValueError("Image format must be BGR or GRAYSCALE to show ROIs.")
-
+        # Ensure we can draw colors
         img_copy = self.data.copy()
+        if self.is_grayscale:
+            img_copy = cv2.cvtColor(img_copy, cv2.COLOR_GRAY2BGR)
+
         for roi in self.rois:
             pts = np.array([roi.p1, roi.p2, roi.p3, roi.p4], np.int32)
             pts = pts.reshape((-1, 1, 2))
@@ -198,60 +230,19 @@ class Image:
         self.data = img_copy
 
     def clone(self) -> "Image":
-        """Return a deep copy of this Image.
-
-        - numpy array for image data is copied via np.copy
-        - ROI objects are cloned
-        - Calibration is cloned if present
-        - Metadata is cloned
-        """
+        """Return a deep copy of this Image."""
         data_copy = None
         if self.data is not None:
-            try:
-                data_copy = np.copy(self.data)
-            except Exception:
-                # fallback to deepcopy
-                data_copy = copy.deepcopy(self.data)
+            data_copy = np.copy(self.data)
 
-        rois_copy = [r.clone() for r in self.rois] if self.rois is not None else []
+        rois_copy = [r.clone() for r in self.rois]
         calibration_copy = self.calibration.clone() if self.calibration is not None else None
 
-        if self.hsv_channels is not None:
-            try:
-                hsv_copy = [np.copy(channel) for channel in self.hsv_channels]
-            except Exception:
-                hsv_copy = copy.deepcopy(self.hsv_channels)
-        else:
-            hsv_copy = None
-
-        res = Image(data=data_copy, rois=rois_copy, calibration=calibration_copy, format=self.format)
-        res.hsv_channels = hsv_copy
+        res = Image(data=data_copy, rois=rois_copy, calibration=calibration_copy)
         res.metadata = self.metadata.clone()
 
         return res
     
-    def get_hsv_channel(self, channel: str) -> np.ndarray:
-        """Get a specific HSV channel from the image.
-
-        Args:
-            channel (str): One of 'H', 'S', or 'V'.
-        Returns:
-            np.ndarray: The requested HSV channel.
-        """
-
-        if self.hsv_channels is None:
-            raise ValueError("HSV channels not computed. Please convert the image to HSV first.")
-        
-        channel = channel.upper()
-        if channel == 'H':
-            return self.hsv_channels[0]
-        elif channel == 'S':
-            return self.hsv_channels[1]
-        elif channel == 'V':
-            return self.hsv_channels[2]
-        else:
-            raise ValueError("Invalid channel specified. Use 'H', 'S', or 'V'.")
-
     def get_image(self) -> np.ndarray:
         """Get the image data as a numpy array."""
         return self.data
@@ -269,14 +260,14 @@ class DataLoader:
         image = cv2.imread(image_path)
         return image
 
-    def load_metadata(self, number: str) -> list[RegionOfInterest]:
+    def load_metadata(self, number: int) -> list[RegionOfInterest]:
         image_path = os.path.join(self._path, str(number).zfill(6))
         metadata_path = os.path.join(
             image_path, "annotations/traffic_signs.json"
         )
         result = []
         if os.path.exists(metadata_path):
-            with open(metadata_path, "r") as f:
+            with open(metadata_path) as f:
                 metadata = json.load(f)
                 for item in metadata:
                     coordinates = item["geometry"]["coordinates"]
@@ -292,7 +283,7 @@ class DataLoader:
             image_path, "annotations/object_detection.json"
         )
         if os.path.exists(metadata_path):
-            with open(metadata_path, "r") as f:
+            with open(metadata_path) as f:
                 metadata = json.load(f)
                 for item in metadata:
                     properties = item["properties"]
@@ -307,12 +298,12 @@ class DataLoader:
                         result.append(roi)
         return result
 
-    def load_calibration(self, number: int) -> Calibration:
+    def load_calibration(self, number: int) -> Calibration | None:
         image_path = os.path.join(self._path, str(number).zfill(6))
         calibration_path = os.path.join(image_path, "calibration.json")
 
         if os.path.exists(calibration_path):
-            with open(calibration_path, "r") as f:
+            with open(calibration_path) as f:
                 calibration_data = json.load(f)
                 return Calibration(calibration_data)
         return None

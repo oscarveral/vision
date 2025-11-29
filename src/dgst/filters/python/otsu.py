@@ -1,5 +1,5 @@
-import numpy as np
 import cv2
+import numpy as np
 
 
 def otsu_threshold(image: np.ndarray) -> np.ndarray:
@@ -20,10 +20,7 @@ def otsu_threshold(image: np.ndarray) -> np.ndarray:
     # Convert floats to uint8 if necessary
     if arr.dtype == np.float32 or arr.dtype == np.float64:
         # assume normalized [0,1] or [0,255]; scale if max <= 1.0
-        if arr.max() <= 1.0:
-            img_u8 = (arr * 255.0).astype(np.uint8)
-        else:
-            img_u8 = np.clip(arr, 0, 255).astype(np.uint8)
+        img_u8 = (arr * 255.0).astype(np.uint8) if arr.max() <= 1.0 else np.clip(arr, 0, 255).astype(np.uint8)
     elif arr.dtype == np.uint8:
         img_u8 = arr
     else:

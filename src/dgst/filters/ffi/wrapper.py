@@ -1,7 +1,8 @@
-import numpy as np
 import ctypes as ffi
 import os
 import sys
+
+import numpy as np
 
 # Load the shared library.
 lib_path = os.path.join(
@@ -365,7 +366,7 @@ def threshold_filter(input_image: np.ndarray, threshold: float) -> np.ndarray:
     Returns:
         2D numpy array of dtype uint8 with values 0 or 255.
     """
-    if not (isinstance(threshold, float) or isinstance(threshold, (int,))):
+    if not (isinstance(threshold, (float, int))):
         raise ValueError("threshold must be a float between 0 and 1")
     if threshold < 0.0 or threshold > 1.0:
         raise ValueError("threshold must be between 0 and 1")
@@ -415,7 +416,7 @@ def ransac_line_fitting(
     max_lsq_iterations: int,
     distance_threshold: float,
     min_inlier_count: int,
-) -> tuple:
+) -> tuple | None:
     """Fit a line to edge points using RANSAC via the C function.
 
     Args:
@@ -488,7 +489,7 @@ def ransac_circle_fitting(
     min_inlier_ratio: float,
     min_radius: float,
     max_radius: float,
-) -> tuple:
+) -> tuple[float, float, float] | None:
     """Fit a circle to edge points using RANSAC via the C function.
 
     Args:
@@ -500,7 +501,8 @@ def ransac_circle_fitting(
         max_radius: Maximum radius of the circle to be detected
 
     Returns:
-        A tuple (center_x, center_y, radius) representing the circle equation (x - center_x)^2 + (y - center_y)^2 = radius^2
+        A tuple (center_x, center_y, radius) representing the circle equation 
+        (x - center_x)^2 + (y - center_y)^2 = radius^2
     """
     if edge_map.dtype != np.bool_:
         raise ValueError("Edge map must be of type bool.")

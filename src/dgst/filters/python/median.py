@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 
+
 def median_blur(image: np.ndarray, kernel_size: int) -> np.ndarray:
     """
     Aplica un filtro de mediana a una imagen.

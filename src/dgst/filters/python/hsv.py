@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 
+
 def into_hsv_channels(image: np.ndarray) -> np.ndarray:
     """Convert the image data into HSV channels and store them.
 
