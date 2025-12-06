@@ -23,6 +23,7 @@ from .wrapper import (  # noqa: E402
     kannala_brandt_undistort,
     phase_congruency,
     ransac_circle_fitting,
+    ransac_homography_fitting,
     ransac_line_fitting,
     threshold_filter,
 )
@@ -37,4 +38,5 @@ __all__ = [
     "threshold_filter",
     "ransac_line_fitting",
     "ransac_circle_fitting",
+    "ransac_homography_fitting",
 ]

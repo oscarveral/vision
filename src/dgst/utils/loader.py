@@ -313,3 +313,13 @@ class DataLoader:
         rois = self.load_metadata(number)
         calibration = self.load_calibration(number)
         return Image(data=image, rois=rois, calibration=calibration)
+    
+    def load_all(self) -> list[Image]:
+        images = []
+        for entry in os.listdir(self._path):
+            entry_path = os.path.join(self._path, entry)
+            if os.path.isdir(entry_path) and entry.isdigit():
+                number = int(entry)
+                img = self.load(number)
+                images.append(img)
+        return images

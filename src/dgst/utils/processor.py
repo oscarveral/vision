@@ -38,6 +38,12 @@ class ProcessingTechnique:
     THRESHOLD_FILTER = "threshold_filter"
     CLAHE = "clahe"
     OTSU_THRESHOLD = "otsu_threshold"
+    # Geometric transforms
+    ROTATION = "rotation"
+    SCALE = "scale"
+    # Augmentation transforms
+    GAUSSIAN_NOISE = "gaussian_noise"
+
 
 
 class ProcessingStep(ABC):
@@ -1011,6 +1017,180 @@ class IntoBooleanMaskStep(ProcessingStep):
             "technique": "into_boolean_mask",
         }
 
+
+class RotationStep(ProcessingStep):
+    """Apply rotation transform to an image.
+    
+    Useful for testing detector/descriptor invariance to rotation.
+    """
+
+    def __init__(self, angle_degrees: float, keep_size: bool = True):
+        """Initialize rotation step.
+        
+        Args:
+            angle_degrees: Angle of rotation in degrees (positive = counter-clockwise).
+            keep_size: If True, output has same size as input (may crop corners).
+                      If False, output is expanded to fit rotated image.
+        """
+        self.angle_degrees = float(angle_degrees)
+        self.keep_size = keep_size
+
+    def process(self, image: Image) -> Image:
+        if image.data is None:
+            raise ValidationError("RotationStep: Image.data is None")
+
+        h, w = image.data.shape[:2]
+        center = (w // 2, h // 2)
+        
+        M = cv2.getRotationMatrix2D(center, self.angle_degrees, 1.0)
+        
+        if self.keep_size:
+            new_w, new_h = w, h
+        else:
+            # Calculate new image bounds
+            cos = np.abs(M[0, 0])
+            sin = np.abs(M[0, 1])
+            new_w = int(h * sin + w * cos)
+            new_h = int(h * cos + w * sin)
+            # Adjust rotation matrix
+            M[0, 2] += (new_w - w) / 2
+            M[1, 2] += (new_h - h) / 2
+
+        result = cv2.warpAffine(image.data, M, (new_w, new_h))
+
+        if result is None:
+            raise ValidationError("RotationStep: Output is None")
+
+        image.data = result
+        image.metadata.add_step({
+            "technique": ProcessingTechnique.ROTATION,
+            "angle_degrees": self.angle_degrees,
+            "keep_size": self.keep_size,
+            "output_shape": image.data.shape,
+        })
+
+        return image
+
+    def get_params(self) -> dict[str, Any]:
+        return {
+            "technique": ProcessingTechnique.ROTATION,
+            "angle_degrees": self.angle_degrees,
+            "keep_size": self.keep_size,
+        }
+
+
+class ScaleTransformStep(ProcessingStep):
+    """Apply scale transform to an image.
+    
+    Useful for testing detector/descriptor invariance to scale changes.
+    """
+
+    def __init__(self, scale_factor: float, restore_size: bool = False):
+        """Initialize scale step.
+        
+        Args:
+            scale_factor: Factor to scale by (e.g., 0.5 = half size, 2.0 = double).
+            restore_size: If True, scale down/up and then restore to original size.
+                         This simulates resolution loss while maintaining dimensions.
+        """
+        if scale_factor <= 0:
+            raise ValueError("scale_factor must be positive")
+        self.scale_factor = float(scale_factor)
+        self.restore_size = restore_size
+
+    def process(self, image: Image) -> Image:
+        if image.data is None:
+            raise ValidationError("ScaleTransformStep: Image.data is None")
+
+        original_h, original_w = image.data.shape[:2]
+        new_w = int(original_w * self.scale_factor)
+        new_h = int(original_h * self.scale_factor)
+
+        # Choose interpolation based on scaling direction
+        if self.scale_factor < 1.0:
+            interp = cv2.INTER_AREA
+        else:
+            interp = cv2.INTER_LINEAR
+
+        scaled = cv2.resize(image.data, (new_w, new_h), interpolation=interp)
+
+        if self.restore_size:
+            # Restore to original size
+            result = cv2.resize(scaled, (original_w, original_h), interpolation=cv2.INTER_LINEAR)
+        else:
+            result = scaled
+
+        if result is None:
+            raise ValidationError("ScaleTransformStep: Output is None")
+
+        image.data = result
+        image.metadata.add_step({
+            "technique": ProcessingTechnique.SCALE,
+            "scale_factor": self.scale_factor,
+            "restore_size": self.restore_size,
+            "output_shape": image.data.shape,
+        })
+
+        return image
+
+    def get_params(self) -> dict[str, Any]:
+        return {
+            "technique": ProcessingTechnique.SCALE,
+            "scale_factor": self.scale_factor,
+            "restore_size": self.restore_size,
+        }
+
+
+class GaussianNoiseStep(ProcessingStep):
+    """Add Gaussian noise to an image.
+    
+    Useful for testing detector/descriptor robustness to noise.
+    """
+
+    def __init__(self, sigma: float = 25.0, seed: int | None = None):
+        """Initialize Gaussian noise step.
+        
+        Args:
+            sigma: Standard deviation of the Gaussian noise.
+            seed: Random seed for reproducibility. If None, uses random state.
+        """
+        if sigma < 0:
+            raise ValueError("sigma must be non-negative")
+        self.sigma = float(sigma)
+        self.seed = seed
+
+    def process(self, image: Image) -> Image:
+        if image.data is None:
+            raise ValidationError("GaussianNoiseStep: Image.data is None")
+
+        rng = np.random.default_rng(self.seed)
+        noise = rng.normal(0, self.sigma, image.data.shape).astype(np.float32)
+        
+        noisy = image.data.astype(np.float32) + noise
+        result = np.clip(noisy, 0, 255).astype(np.uint8)
+
+        if result is None:
+            raise ValidationError("GaussianNoiseStep: Output is None")
+
+        image.data = result
+        image.metadata.add_step({
+            "technique": ProcessingTechnique.GAUSSIAN_NOISE,
+            "sigma": self.sigma,
+            "seed": self.seed,
+            "output_shape": image.data.shape,
+        })
+
+        return image
+
+    def get_params(self) -> dict[str, Any]:
+        return {
+            "technique": ProcessingTechnique.GAUSSIAN_NOISE,
+            "sigma": self.sigma,
+            "seed": self.seed,
+        }
+
+
+
 class ImageProcessor:
     """Flexible image processor for chaining filters and edge detection.
 
@@ -1244,6 +1424,43 @@ class ImageProcessor:
             Self for method chaining
         """
         return self.add_step(IntoBooleanMaskStep())
+
+    def add_rotation(self, angle_degrees: float, keep_size: bool = True) -> "ImageProcessor":
+        """Add rotation transform step.
+
+        Args:
+            angle_degrees: Angle of rotation in degrees (positive = counter-clockwise).
+            keep_size: If True, output has same size as input (may crop corners).
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(RotationStep(angle_degrees, keep_size))
+
+    def add_scale_transform(self, scale_factor: float, restore_size: bool = False) -> "ImageProcessor":
+        """Add scale transform step.
+
+        Args:
+            scale_factor: Factor to scale by (e.g., 0.5 = half size, 2.0 = double).
+            restore_size: If True, scale and restore to original size (simulates resolution loss).
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(ScaleTransformStep(scale_factor, restore_size))
+
+    def add_gaussian_noise(self, sigma: float = 25.0, seed: int | None = None) -> "ImageProcessor":
+        """Add Gaussian noise step.
+
+        Args:
+            sigma: Standard deviation of the noise.
+            seed: Random seed for reproducibility.
+
+        Returns:
+            Self for method chaining
+        """
+        return self.add_step(GaussianNoiseStep(sigma, seed))
+
 
     def process(self, image: Image, 
                 keep_intermediate: bool = False) -> Image:
