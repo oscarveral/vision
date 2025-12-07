@@ -81,7 +81,9 @@ class SignMatcher:
         references_path: str,
         method: DescriptorMethod = DescriptorMethod.SIFT,
         matcher_type: MatcherType = MatcherType.BRUTE_FORCE,
+        load_hole: bool = False,
         ratio_threshold: float = 0.75,
+        duplicate_threshold: float = 0.7,
         preprocessor: Callable[[Image], Image] | None = None,
     ):
         """Inicializa el matcher y carga las referencias.
@@ -91,6 +93,9 @@ class SignMatcher:
             method: Método de extracción de descriptores.
             matcher_type: Tipo de matcher (BruteForce o FLANN).
             ratio_threshold: Umbral para ratio test de Lowe.
+            duplicate_threshold: Umbral de similitud para rechazar duplicados (0.0-1.0).
+                Si una nueva referencia tiene score >= este umbral con una existente,
+                no se añade. Usar 1.0 para desactivar.
             preprocessor: Función opcional que preprocesa imágenes antes de extraer
                 features. Recibe Image y devuelve Image procesada.
         """
@@ -98,9 +103,11 @@ class SignMatcher:
         self._method = method
         self._matcher_type = matcher_type
         self._ratio_threshold = ratio_threshold
+        self._duplicate_threshold = duplicate_threshold
         self._preprocessor = preprocessor
         self._extractor = LocalDescriptorExtractor()
         self._references: list[tuple[str, Image, ExtractionResult]] = []
+        self._load_hole = load_hole
         self._matcher = self._create_matcher()
         
         self._load_references()
@@ -134,7 +141,10 @@ class SignMatcher:
             try:
                 ref_image = loader.load(ref_id)
                 
-                if ref_image.rois:
+                if self._load_hole:
+                    # Usar la imagen completa como referencia
+                    self._add_reference(f"{ref_id:06d}", ref_image)
+                elif ref_image.rois:
                     for i, roi in enumerate(ref_image.rois):
                         try:
                             roi_img = extract_roi_image(ref_image, roi)
@@ -147,11 +157,20 @@ class SignMatcher:
                 continue
     
     def _add_reference(self, name: str, image: Image) -> None:
-        """Añade una referencia al banco."""
-        processed = self._preprocess(image)
-        extraction = self._extractor.extract(processed, self._method)
-        if extraction.has_descriptors():
-            self._references.append((name, image, extraction))
+        """Añade una referencia al banco si no es muy similar a una existente."""
+        # No preprocesar referencias - usar imagen original
+        extraction = self._extractor.extract(image, self._method)
+        if not extraction.has_descriptors():
+            return
+        
+        # Verificar si ya existe una referencia muy similar
+        if self._duplicate_threshold < 1.0:
+            for _, _, ref_ext in self._references:
+                score, _, _ = self._compute_match_score(extraction, ref_ext)
+                if score >= self._duplicate_threshold:
+                    return  # Duplicado detectado, no añadir
+        
+        self._references.append((name, image, extraction))
     
     def _preprocess(self, image: Image) -> Image:
         """Aplica preprocesamiento si está configurado."""
@@ -235,11 +254,15 @@ class SignMatcher:
         ransac_threshold: float = 10.0,
         max_detections: int = 10,
         ratio_threshold: float | None = None,
+        min_template_size: int = 100,
     ) -> list[LocalizationResult]:
         """Localiza múltiples instancias de un template en una imagen usando RANSAC.
         
         Usa RANSAC iterativo: encuentra una instancia, elimina los inliers usados,
         y repite hasta que no se encuentren más matches válidos.
+        
+        Si el template es pequeño (menor que min_template_size en cualquier dimensión),
+        se escala automáticamente para mejorar la detección de keypoints.
         
         Args:
             template: Imagen del template a buscar.
@@ -249,11 +272,29 @@ class SignMatcher:
             max_detections: Máximo de detecciones a encontrar.
             ratio_threshold: Umbral para ratio test de Lowe. Si None, usa el del matcher.
                 Valores más altos (0.8-0.9) son más permisivos.
+            min_template_size: Tamaño mínimo del template. Si el template es menor,
+                se escala automáticamente para mejorar la extracción de features.
             
         Returns:
             Lista de LocalizationResult con todas las localizaciones encontradas.
         """
-        template_processed = self._preprocess(template)
+        h_t_orig, w_t_orig = template.data.shape[:2]
+        h_img, w_img = image.data.shape[:2]
+        
+        # Escalar template si es muy pequeño para obtener mejores keypoints
+        scale_factor = 1.0
+        if min(h_t_orig, w_t_orig) < min_template_size:
+            scale_factor = min_template_size / min(h_t_orig, w_t_orig)
+            new_w = int(w_t_orig * scale_factor)
+            new_h = int(h_t_orig * scale_factor)
+            scaled_data = cv2.resize(template.data, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+            template_scaled = Image(data=scaled_data, rois=[])
+        else:
+            template_scaled = template
+        
+        h_t_scaled, w_t_scaled = template_scaled.data.shape[:2]
+        
+        template_processed = self._preprocess(template_scaled)
         template_ext = self._extractor.extract(template_processed, self._method)
         if not template_ext.has_descriptors():
             return []
@@ -266,24 +307,22 @@ class SignMatcher:
         # Usar ratio_threshold pasado o el del matcher
         effective_ratio = ratio_threshold if ratio_threshold is not None else self._ratio_threshold
         
-        h_t, w_t = template.data.shape[:2]
-        h_img, w_img = image.data.shape[:2]
-        
         desc_t = template_ext._descriptors
-        desc_i = image_ext._descriptors.copy()
+        desc_i = image_ext._descriptors
         
         # Mantener track de keypoints usados en la imagen
         used_image_kp = set()
         results: list[LocalizationResult] = []
         
         for _ in range(max_detections):
-            # Matching
+            # Matching: template -> scene (estándar para localización)
             try:
                 matches = self._matcher.knnMatch(desc_t, desc_i, k=2)
             except cv2.error:
                 break
             
             # Ratio test, excluyendo keypoints ya usados
+            # m.queryIdx = índice en template, m.trainIdx = índice en imagen
             good_matches = []
             for match_pair in matches:
                 if len(match_pair) == 2:
@@ -296,6 +335,8 @@ class SignMatcher:
                 break
             
             # Obtener puntos correspondientes
+            # Los keypoints del template están en coordenadas escaladas,
+            # los de la imagen están en coordenadas originales
             pts_template = np.float32([
                 template_ext.keypoints[m.queryIdx].position for m in good_matches
             ]).reshape(-1, 1, 2)
@@ -317,9 +358,9 @@ class SignMatcher:
             if num_inliers < min_inliers:
                 break
             
-            # Proyectar esquinas del template
+            # Proyectar esquinas del template (en coordenadas escaladas)
             template_corners = np.float32([
-                [0, 0], [w_t, 0], [w_t, h_t], [0, h_t]
+                [0, 0], [w_t_scaled, 0], [w_t_scaled, h_t_scaled], [0, h_t_scaled]
             ]).reshape(-1, 1, 2)
             
             try:
@@ -350,6 +391,171 @@ class SignMatcher:
         
         return results
     
+    def locate_template_sliding(
+        self,
+        template: Image,
+        image: Image,
+        window_scale: float = 2.0,
+        overlap: float = 0.5,
+        top_k_candidates: int = 5,
+        min_inliers: int = 5,
+        ransac_threshold: float = 10.0,
+        ratio_threshold: float | None = None,
+        refine_margin: float = 0.5,
+    ) -> list[LocalizationResult]:
+        """Localiza un template pequeño en una imagen grande usando ventana deslizante.
+        
+        Estrategia coarse-to-fine:
+        1. Divide la imagen en patches con tamaño proporcional al template
+        2. Hace matching rápido para encontrar regiones candidatas
+        3. Refina la búsqueda en las regiones más prometedoras
+        
+        Args:
+            template: Imagen del template a buscar.
+            image: Imagen donde buscar.
+            window_scale: Factor de escala para el tamaño de ventana respecto al template.
+                Por ejemplo, 2.0 significa ventanas de 2x el tamaño del template.
+            overlap: Proporción de solapamiento entre ventanas (0.0-0.9).
+            top_k_candidates: Número de regiones candidatas a refinar.
+            min_inliers: Mínimo de inliers para considerar detección válida.
+            ransac_threshold: Umbral de reproyección para RANSAC.
+            ratio_threshold: Umbral para ratio test. Si None, usa el del matcher.
+            refine_margin: Margen adicional alrededor del candidato para refinamiento
+                (como proporción del tamaño de ventana).
+            
+        Returns:
+            Lista de LocalizationResult ordenadas por score.
+        """
+        h_t, w_t = template.data.shape[:2]
+        h_img, w_img = image.data.shape[:2]
+        
+        # Calcular tamaño de ventana
+        window_h = int(h_t * window_scale)
+        window_w = int(w_t * window_scale)
+        
+        # Si la ventana es muy grande respecto a la imagen, usar método directo
+        if window_h >= h_img * 0.8 or window_w >= w_img * 0.8:
+            return self.locate_template(
+                template, image, min_inliers, ransac_threshold, 
+                max_detections=1, ratio_threshold=ratio_threshold
+            )
+        
+        # Extraer features del template una sola vez
+        template_processed = self._preprocess(template)
+        template_ext = self._extractor.extract(template_processed, self._method)
+        if not template_ext.has_descriptors():
+            return []
+        
+        effective_ratio = ratio_threshold if ratio_threshold is not None else self._ratio_threshold
+        
+        # Calcular paso de la ventana deslizante
+        step_h = max(1, int(window_h * (1 - overlap)))
+        step_w = max(1, int(window_w * (1 - overlap)))
+        
+        # Fase 1: Búsqueda gruesa - encontrar candidatos prometedores
+        candidates: list[tuple[float, int, int, int, int]] = []  # (score, x, y, w, h)
+        
+        for y in range(0, h_img - window_h + 1, step_h):
+            for x in range(0, w_img - window_w + 1, step_w):
+                # Extraer patch
+                patch_data = image.data[y:y+window_h, x:x+window_w]
+                patch = Image(data=patch_data, rois=[])
+                
+                # Calcular score de matching rápido
+                patch_processed = self._preprocess(patch)
+                patch_ext = self._extractor.extract(patch_processed, self._method)
+                
+                if not patch_ext.has_descriptors():
+                    continue
+                
+                # Matching rápido
+                try:
+                    matches = self._matcher.knnMatch(
+                        template_ext._descriptors, 
+                        patch_ext._descriptors, 
+                        k=2
+                    )
+                except cv2.error:
+                    continue
+                
+                # Contar buenos matches
+                good_count = 0
+                for match_pair in matches:
+                    if len(match_pair) == 2:
+                        m, n = match_pair
+                        if m.distance < effective_ratio * n.distance:
+                            good_count += 1
+                
+                if good_count >= 4:  # Mínimo para homografía
+                    score = good_count / max(1, template_ext.num_keypoints)
+                    candidates.append((score, x, y, window_w, window_h))
+        
+        if not candidates:
+            return []
+        
+        # Ordenar por score y tomar los mejores
+        candidates.sort(reverse=True, key=lambda c: c[0])
+        top_candidates = candidates[:top_k_candidates]
+        
+        # Fase 2: Refinamiento - buscar con más precisión en cada candidato
+        results: list[LocalizationResult] = []
+        used_regions: list[tuple[int, int, int, int]] = []
+        
+        for _, cx, cy, cw, ch in top_candidates:
+            # Expandir región para refinamiento
+            margin_x = int(cw * refine_margin)
+            margin_y = int(ch * refine_margin)
+            
+            rx = max(0, cx - margin_x)
+            ry = max(0, cy - margin_y)
+            rw = min(w_img - rx, cw + 2 * margin_x)
+            rh = min(h_img - ry, ch + 2 * margin_y)
+            
+            # Verificar que no se solape demasiado con regiones ya procesadas
+            overlaps = False
+            for ux, uy, uw, uh in used_regions:
+                # Calcular IoU aproximado
+                ix = max(rx, ux)
+                iy = max(ry, uy)
+                ix2 = min(rx + rw, ux + uw)
+                iy2 = min(ry + rh, uy + uh)
+                if ix < ix2 and iy < iy2:
+                    inter_area = (ix2 - ix) * (iy2 - iy)
+                    union_area = rw * rh + uw * uh - inter_area
+                    if inter_area / union_area > 0.5:
+                        overlaps = True
+                        break
+            
+            if overlaps:
+                continue
+            
+            # Extraer región para refinamiento
+            region_data = image.data[ry:ry+rh, rx:rx+rw]
+            region = Image(data=region_data, rois=[])
+            
+            # Localizar en la región
+            region_results = self.locate_template(
+                template, region, min_inliers, ransac_threshold,
+                max_detections=1, ratio_threshold=ratio_threshold
+            )
+            
+            for loc in region_results:
+                if loc.found and loc.bounding_box:
+                    # Ajustar coordenadas al sistema de la imagen completa
+                    bx, by, bw, bh = loc.bounding_box
+                    adjusted_bbox = (bx + rx, by + ry, bw, bh)
+                    results.append(LocalizationResult(
+                        found=True,
+                        score=loc.score,
+                        bounding_box=adjusted_bbox,
+                        num_matches=loc.num_matches
+                    ))
+                    used_regions.append(adjusted_bbox)
+        
+        # Ordenar por score
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
+    
     def locate_template_batch(
         self,
         template: Image,
@@ -358,13 +564,39 @@ class SignMatcher:
         ransac_threshold: float = 10.0,
         max_detections: int = 10,
         ratio_threshold: float | None = None,
+        min_template_size: int = 100,
     ) -> list[list[LocalizationResult]]:
         """Localiza un template en múltiples imágenes.
         
         Returns:
             Lista de listas. Cada sublista contiene las localizaciones para esa imagen.
         """
-        return [self.locate_template(template, img, min_inliers, ransac_threshold, max_detections, ratio_threshold) for img in images]
+        return [self.locate_template(template, img, min_inliers, ransac_threshold, max_detections, ratio_threshold, min_template_size) for img in images]
+    
+    def locate_template_sliding_batch(
+        self,
+        template: Image,
+        images: list[Image],
+        window_scale: float = 2.0,
+        overlap: float = 0.5,
+        top_k_candidates: int = 5,
+        min_inliers: int = 5,
+        ransac_threshold: float = 10.0,
+        ratio_threshold: float | None = None,
+        refine_margin: float = 0.5,
+    ) -> list[list[LocalizationResult]]:
+        """Localiza un template en múltiples imágenes usando ventana deslizante.
+        
+        Returns:
+            Lista de listas. Cada sublista contiene las localizaciones para esa imagen.
+        """
+        return [
+            self.locate_template_sliding(
+                template, img, window_scale, overlap, top_k_candidates,
+                min_inliers, ransac_threshold, ratio_threshold, refine_margin
+            ) 
+            for img in images
+        ]
     
     def visualize_match(
         self,
@@ -383,29 +615,18 @@ class SignMatcher:
             raise ValueError(f"Reference not found: {reference_name}")
         
         ref_img, ref_ext = ref
-        query_ext = self._extractor.extract(query, self._method)
+        query_processed = self._preprocess(query)
+        query_ext = self._extractor.extract(query_processed, self._method)
         
-        img1 = query.data if query.is_color else cv2.cvtColor(query.data, cv2.COLOR_GRAY2BGR)
-        img2 = ref_img.data if ref_img.is_color else cv2.cvtColor(ref_img.data, cv2.COLOR_GRAY2BGR)
+        img1, img2 = self._prepare_images_for_viz(query, ref_img)
         
         if not query_ext.has_descriptors() or not ref_ext.has_descriptors():
-            h = max(img1.shape[0], img2.shape[0])
-            result = np.zeros((h, img1.shape[1] + img2.shape[1], 3), dtype=np.uint8)
-            result[:img1.shape[0], :img1.shape[1]] = img1
-            result[:img2.shape[0], img1.shape[1]:] = img2
-            return Image(data=result, rois=[])
+            return self._concat_images(img1, img2)
         
-        try:
-            matches = self._matcher.knnMatch(query_ext._descriptors, ref_ext._descriptors, k=2)
-        except cv2.error:
-            matches = []
-        
-        good_matches = []
-        for mp in matches:
-            if len(mp) == 2 and mp[0].distance < self._ratio_threshold * mp[1].distance:
-                good_matches.append(mp[0])
-        
-        good_matches = sorted(good_matches, key=lambda x: x.distance)[:max_matches]
+        good_matches = self._get_good_matches(
+            query_ext._descriptors, ref_ext._descriptors, 
+            self._ratio_threshold, max_matches
+        )
         
         kp1 = [kp._cv_kp for kp in query_ext.keypoints]
         kp2 = [kp._cv_kp for kp in ref_ext.keypoints]
@@ -424,6 +645,93 @@ class SignMatcher:
         })
         return result
     
+    def visualize_template_match(
+        self,
+        template: Image,
+        image: Image,
+        max_matches: int = 100,
+        ratio_threshold: float | None = None,
+        draw_homography: bool = True,
+        min_template_size: int = 100,
+    ) -> Image:
+        """Visualiza matches entre un template pequeño y una imagen de escena.
+        
+        Args:
+            template: Imagen del template (pequeña).
+            image: Imagen de escena (grande).
+            max_matches: Máximo de matches a dibujar.
+            ratio_threshold: Umbral para ratio test. Si None, usa el del matcher.
+            draw_homography: Si True, dibuja el contorno proyectado del template.
+            min_template_size: Tamaño mínimo para escalar el template.
+            
+        Returns:
+            Imagen con template a la izquierda y escena con matches a la derecha.
+        """
+        template_scaled, scale_factor = self._scale_template(template, min_template_size)
+        h_t_scaled, w_t_scaled = template_scaled.data.shape[:2]
+        
+        template_ext = self._extractor.extract(self._preprocess(template_scaled), self._method)
+        image_ext = self._extractor.extract(self._preprocess(image), self._method)
+        
+        img1, img2 = self._prepare_images_for_viz(template_scaled, image)
+        
+        if not template_ext.has_descriptors() or not image_ext.has_descriptors():
+            return self._concat_images(img1, img2)
+        
+        effective_ratio = ratio_threshold if ratio_threshold is not None else self._ratio_threshold
+        good_matches = self._get_good_matches(
+            template_ext._descriptors, image_ext._descriptors,
+            effective_ratio, max_matches
+        )
+        
+        # Dibujar homografía si hay suficientes matches
+        H = None
+        if draw_homography and len(good_matches) >= 4:
+            H = self._draw_homography_on_image(
+                template_ext, image_ext, good_matches,
+                w_t_scaled, h_t_scaled, img2
+            )
+        
+        kp1 = [kp._cv_kp for kp in template_ext.keypoints]
+        kp2 = [kp._cv_kp for kp in image_ext.keypoints]
+        
+        result_data = cv2.drawMatches(
+            img1, kp1, img2, kp2, good_matches, None,
+            matchColor=(0, 255, 0),
+            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+        )
+        
+        result = Image(data=result_data, rois=[])
+        result.metadata.add_step({
+            "technique": "visualize_template_match",
+            "num_matches": len(good_matches),
+            "homography_found": H is not None,
+            "scale_factor": scale_factor,
+        })
+        return result
+    
+    def visualize_template_match_batch(
+        self,
+        template: Image,
+        images: list[Image],
+        max_matches: int = 100,
+        ratio_threshold: float | None = None,
+        draw_homography: bool = True,
+        min_template_size: int = 100,
+    ) -> list[Image]:
+        """Visualiza matches de un template contra múltiples imágenes.
+        
+        Returns:
+            Lista de imágenes con visualizaciones de matches.
+        """
+        return [
+            self.visualize_template_match(
+                template, img, max_matches, ratio_threshold,
+                draw_homography, min_template_size
+            )
+            for img in images
+        ]
+    
     def visualize_localization(
         self,
         template: Image,
@@ -431,21 +739,9 @@ class SignMatcher:
         localizations: list[LocalizationResult],
         bbox_color: tuple[int, int, int] = (0, 255, 0),
     ) -> Image:
-        """Visualiza localizaciones de un template en una imagen.
+        """Visualiza localizaciones de un template en una imagen."""
+        img1, img2 = self._prepare_images_for_viz(template, image)
         
-        Args:
-            template: Imagen del template.
-            image: Imagen donde se buscó.
-            localizations: Lista de resultados de locate_template.
-            bbox_color: Color del bounding box.
-            
-        Returns:
-            Imagen con template a la izquierda, imagen con bboxes a la derecha.
-        """
-        img1 = template.data if template.is_color else cv2.cvtColor(template.data, cv2.COLOR_GRAY2BGR)
-        img2 = image.data.copy() if image.is_color else cv2.cvtColor(image.data, cv2.COLOR_GRAY2BGR)
-        
-        # Dibujar todos los bboxes
         for i, loc in enumerate(localizations):
             if loc.found and loc.bounding_box:
                 x, y, w, h = loc.bounding_box
@@ -453,28 +749,12 @@ class SignMatcher:
                 label = f"#{i+1} {loc.score:.0%} ({loc.num_matches})"
                 cv2.putText(img2, label, (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, bbox_color, 2)
         
-        # Concatenar imágenes
-        h1, w1 = img1.shape[:2]
-        h2, w2 = img2.shape[:2]
-        h = max(h1, h2)
-        
-        result_data = np.zeros((h, w1 + w2, 3), dtype=np.uint8)
-        result_data[:h1, :w1] = img1
-        result_data[:h2, w1:w1+w2] = img2
-        
-        result = Image(data=result_data, rois=[])
+        result = self._concat_images(img1, img2)
         result.metadata.add_step({
             "technique": "visualize_localization",
             "num_detections": len([l for l in localizations if l.found]),
         })
         return result
-    
-    def get_reference_image(self, name: str) -> Image | None:
-        """Obtiene la imagen de una referencia por nombre."""
-        for n, img, _ in self._references:
-            if n == name:
-                return img
-        return None
     
     def visualize_localization_batch(
         self,
@@ -483,26 +763,105 @@ class SignMatcher:
         localizations: list[list[LocalizationResult]],
         bbox_color: tuple[int, int, int] = (0, 255, 0),
     ) -> list[Image | None]:
-        """Visualiza localizaciones de template en múltiples imágenes.
-        
-        Args:
-            template: Imagen del template.
-            images: Lista de imágenes donde se buscó.
-            localizations: Resultados de locate_template_batch (lista de listas).
-            bbox_color: Color del bounding box.
-            
-        Returns:
-            Lista de Image con visualizaciones. None para imágenes sin detecciones.
-        """
+        """Visualiza localizaciones de template en múltiples imágenes."""
         if len(images) != len(localizations):
             raise ValueError("images and localizations must have same length")
         
-        results: list[Image | None] = []
+        return [
+            self.visualize_localization(template, img, locs, bbox_color) if locs else None
+            for img, locs in zip(images, localizations)
+        ]
+    
+    def get_reference_image(self, name: str) -> Image | None:
+        """Obtiene la imagen de una referencia por nombre."""
+        for n, img, _ in self._references:
+            if n == name:
+                return img
+        return None
+    
+    # -------------------------------------------------------------------------
+    # Métodos auxiliares privados
+    # -------------------------------------------------------------------------
+    
+    def _scale_template(
+        self, template: Image, min_size: int
+    ) -> tuple[Image, float]:
+        """Escala un template si es menor que min_size."""
+        h, w = template.data.shape[:2]
+        if min(h, w) >= min_size:
+            return template, 1.0
         
-        for image, locs in zip(images, localizations):
-            if not locs:  # Lista vacía
-                results.append(None)
-            else:
-                results.append(self.visualize_localization(template, image, locs, bbox_color))
+        scale = min_size / min(h, w)
+        new_w, new_h = int(w * scale), int(h * scale)
+        scaled = cv2.resize(template.data, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        return Image(data=scaled, rois=[]), scale
+    
+    def _prepare_images_for_viz(
+        self, img1: Image, img2: Image
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Prepara imágenes para visualización (convierte a BGR si es necesario)."""
+        out1 = img1.data if img1.is_color else cv2.cvtColor(img1.data, cv2.COLOR_GRAY2BGR)
+        out2 = img2.data.copy() if img2.is_color else cv2.cvtColor(img2.data, cv2.COLOR_GRAY2BGR)
+        return out1, out2
+    
+    def _concat_images(self, img1: np.ndarray, img2: np.ndarray) -> Image:
+        """Concatena dos imágenes horizontalmente."""
+        h1, w1 = img1.shape[:2]
+        h2, w2 = img2.shape[:2]
+        h = max(h1, h2)
+        result = np.zeros((h, w1 + w2, 3), dtype=np.uint8)
+        result[:h1, :w1] = img1
+        result[:h2, w1:w1+w2] = img2
+        return Image(data=result, rois=[])
+    
+    def _get_good_matches(
+        self,
+        desc1: np.ndarray,
+        desc2: np.ndarray,
+        ratio_threshold: float,
+        max_matches: int | None = None,
+    ) -> list:
+        """Obtiene buenos matches aplicando ratio test."""
+        try:
+            matches = self._matcher.knnMatch(desc1, desc2, k=2)
+        except cv2.error:
+            return []
         
-        return results
+        good = []
+        for mp in matches:
+            if len(mp) == 2 and mp[0].distance < ratio_threshold * mp[1].distance:
+                good.append(mp[0])
+        
+        good.sort(key=lambda x: x.distance)
+        return good[:max_matches] if max_matches else good
+    
+    def _draw_homography_on_image(
+        self,
+        template_ext: ExtractionResult,
+        image_ext: ExtractionResult,
+        matches: list,
+        w_template: int,
+        h_template: int,
+        img: np.ndarray,
+        color: tuple[int, int, int] = (0, 255, 255),
+    ) -> np.ndarray | None:
+        """Dibuja el contorno proyectado del template en la imagen."""
+        pts_t = np.float32([
+            template_ext.keypoints[m.queryIdx].position for m in matches
+        ]).reshape(-1, 1, 2)
+        pts_i = np.float32([
+            image_ext.keypoints[m.trainIdx].position for m in matches
+        ]).reshape(-1, 1, 2)
+        
+        try:
+            H, _ = cv2.findHomography(pts_t, pts_i, cv2.RANSAC, 10.0)
+            if H is not None:
+                corners = np.float32([
+                    [0, 0], [w_template, 0], [w_template, h_template], [0, h_template]
+                ]).reshape(-1, 1, 2)
+                projected = cv2.perspectiveTransform(corners, H)
+                cv2.polylines(img, [projected.reshape(-1, 2).astype(np.int32)], True, color, 3)
+                return H
+        except cv2.error:
+            pass
+        return None
