@@ -380,3 +380,78 @@ class LocalDescriptorExtractor:
             )
 
         return results
+
+    def visualize_matches(
+        self,
+        image: Image,
+        transform: ImageProcessor,
+        method: DescriptorMethod = DescriptorMethod.SIFT,
+        max_matches: int = 50,
+    ) -> Image:
+        """Visualiza matches entre imagen original y transformada.
+
+        Args:
+            image: Imagen original.
+            transform: ImageProcessor con la transformación a aplicar.
+            method: Método de extracción de descriptores.
+            max_matches: Máximo de matches a dibujar.
+
+        Returns:
+            Imagen con matches dibujados entre original (izquierda) y transformada (derecha).
+        """
+        # Aplicar transformación
+        transformed_image = transform.process(image.clone())
+
+        # Extraer descriptores
+        result1 = self.extract(image, method)
+        result2 = self.extract(transformed_image, method)
+
+        # Preparar imágenes para visualización
+        img1 = image.data if image.is_color else cv2.cvtColor(image.data, cv2.COLOR_GRAY2BGR)
+        img2 = transformed_image.data if transformed_image.is_color else cv2.cvtColor(transformed_image.data, cv2.COLOR_GRAY2BGR)
+
+        if not result1.has_descriptors() or not result2.has_descriptors():
+            # Sin matches, concatenar imágenes
+            h1, w1 = img1.shape[:2]
+            h2, w2 = img2.shape[:2]
+            h = max(h1, h2)
+            result_data = np.zeros((h, w1 + w2, 3), dtype=np.uint8)
+            result_data[:h1, :w1] = img1
+            result_data[:h2, w1:w1+w2] = img2
+            result = Image(data=result_data, rois=[])
+            result.metadata.add_step({
+                "technique": "visualize_matches",
+                "method": method.value,
+                "num_matches": 0,
+            })
+            return result
+
+        # Obtener matches
+        _, good_matches = self._match_results(result1, result2, method)
+
+        # Limitar matches
+        good_matches = sorted(good_matches, key=lambda x: x.distance)[:max_matches]
+
+        # Obtener cv2 keypoints
+        kp1 = [kp._cv_kp for kp in result1.keypoints]
+        kp2 = [kp._cv_kp for kp in result2.keypoints]
+
+        # Dibujar matches
+        result_data = cv2.drawMatches(
+            img1, kp1, img2, kp2, good_matches, None,
+            matchColor=(0, 255, 0),
+            singlePointColor=(255, 0, 0),
+            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+        )
+
+        result = Image(data=result_data, rois=[])
+        result.metadata.add_step({
+            "technique": "visualize_matches",
+            "method": method.value,
+            "num_matches": len(good_matches),
+            "num_keypoints_original": result1.num_keypoints,
+            "num_keypoints_transformed": result2.num_keypoints,
+        })
+
+        return result
+
