@@ -340,5 +340,41 @@ int32_t ransac_circle_fitting(const bool* input, size_t width, size_t height,
                               float distance_threshold, uint32_t max_iterations,
                               float min_inlier_ratio, float min_radius, float max_radius,
                               float* center_x, float* center_y, float* radius);
+
+/**
+ * @brief Fits a homography matrix between two sets of 2D points using RANSAC.
+ *
+ * This function estimates a 3x3 homography matrix H that maps points from
+ * source to destination: dst = H * src (in homogeneous coordinates).
+ * Uses RANSAC to robustly handle outliers in the point correspondences.
+ *
+ * @param src_points Pointer to source points array (Nx2, row-major: [x0,y0, x1,y1, ...]).
+ *                   Must not be NULL. Must have at least 4 points.
+ * @param dst_points Pointer to destination points array (Nx2, row-major: [x0,y0, x1,y1, ...]).
+ *                   Must not be NULL. Must have same size as src_points.
+ * @param num_points Number of point correspondences. Must be >= 4.
+ * @param distance_threshold Maximum reprojection error to consider a point as inlier. Must be > 0.0f.
+ * @param max_iterations Maximum number of RANSAC iterations. Must be > 0.
+ * @param min_inlier_count Minimum number of inliers to accept a homography. Must be >= 4.
+ * @param homography Pointer to output 3x3 homography matrix (row-major, 9 floats). Must not be NULL.
+ * @param inlier_mask Pointer to output inlier mask (num_points bools). Can be NULL if not needed.
+ *
+ * @return On success: positive integer = number of inliers found.
+ *         On error: negative values:
+ *         -1: Invalid parameters (NULL pointers, insufficient points, invalid thresholds)
+ *         -2: Too many points (> 100,000)
+ *         -3: No valid homography found with sufficient inliers
+ *
+ * @note Algorithm details:
+ *       - Uses Direct Linear Transform (DLT) to compute homography from 4 points
+ *       - Randomly samples 4-point subsets to generate candidate homographies
+ *       - Counts inliers based on reprojection error threshold
+ *       - Time complexity: O(max_iterations * num_points)
+ *       - Space complexity: O(1) (no dynamic allocation)
+ */
+int32_t ransac_homography_fitting(const float* src_points, const float* dst_points,
+                                   size_t num_points, float distance_threshold,
+                                   uint32_t max_iterations, uint32_t min_inlier_count,
+                                   float* homography, bool* inlier_mask);
                             
 #endif // DGST_FILTERS_H

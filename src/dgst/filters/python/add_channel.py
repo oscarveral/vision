@@ -1,6 +1,7 @@
 import cv2 as cv
 import numpy as np
 
+
 def add_channel_weight(ch1: np.ndarray,
                        ch2: np.ndarray,
                        weight: float) -> np.ndarray:

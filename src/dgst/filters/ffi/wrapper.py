@@ -1,6 +1,8 @@
-import numpy as np
 import ctypes as ffi
 import os
+import sys
+
+import numpy as np
 
 # Load the shared library.
 lib_path = os.path.join(
@@ -364,7 +366,7 @@ def threshold_filter(input_image: np.ndarray, threshold: float) -> np.ndarray:
     Returns:
         2D numpy array of dtype uint8 with values 0 or 255.
     """
-    if not (isinstance(threshold, float) or isinstance(threshold, (int,))):
+    if not (isinstance(threshold, (float, int))):
         raise ValueError("threshold must be a float between 0 and 1")
     if threshold < 0.0 or threshold > 1.0:
         raise ValueError("threshold must be between 0 and 1")
@@ -414,7 +416,7 @@ def ransac_line_fitting(
     max_lsq_iterations: int,
     distance_threshold: float,
     min_inlier_count: int,
-) -> tuple:
+) -> tuple | None:
     """Fit a line to edge points using RANSAC via the C function.
 
     Args:
@@ -487,7 +489,7 @@ def ransac_circle_fitting(
     min_inlier_ratio: float,
     min_radius: float,
     max_radius: float,
-) -> tuple:
+) -> tuple[float, float, float] | None:
     """Fit a circle to edge points using RANSAC via the C function.
 
     Args:
@@ -499,7 +501,8 @@ def ransac_circle_fitting(
         max_radius: Maximum radius of the circle to be detected
 
     Returns:
-        A tuple (center_x, center_y, radius) representing the circle equation (x - center_x)^2 + (y - center_y)^2 = radius^2
+        A tuple (center_x, center_y, radius) representing the circle equation 
+        (x - center_x)^2 + (y - center_y)^2 = radius^2
     """
     if edge_map.dtype != np.bool_:
         raise ValueError("Edge map must be of type bool.")
@@ -537,3 +540,79 @@ def ransac_circle_fitting(
         return None
 
     return (center_x.value, center_y.value, radius.value)
+
+
+# Function RANSAC homography fitting from the C library.
+libfilter.ransac_homography_fitting.argtypes = (
+    ffi.POINTER(ffi.c_float),  # src_points
+    ffi.POINTER(ffi.c_float),  # dst_points
+    ffi.c_size_t,              # num_points
+    ffi.c_float,               # distance_threshold
+    ffi.c_uint32,              # max_iterations
+    ffi.c_uint32,              # min_inlier_count
+    ffi.POINTER(ffi.c_float),  # homography (9 floats)
+    ffi.POINTER(ffi.c_bool),   # inlier_mask (optional)
+)
+libfilter.ransac_homography_fitting.restype = ffi.c_int32
+
+
+def ransac_homography_fitting(
+    src_points: np.ndarray,
+    dst_points: np.ndarray,
+    distance_threshold: float = 5.0,
+    max_iterations: int = 1000,
+    min_inlier_count: int = 10,
+) -> tuple[np.ndarray, np.ndarray, int] | None:
+    """Fit a homography between two point sets using RANSAC via the C function.
+
+    Args:
+        src_points: Nx2 array of source points (float32).
+        dst_points: Nx2 array of destination points (float32).
+        distance_threshold: Maximum reprojection error to consider a point as inlier.
+        max_iterations: Number of RANSAC iterations.
+        min_inlier_count: Minimum number of inliers to accept a homography.
+
+    Returns:
+        Tuple of (homography, inlier_mask, num_inliers) or None if no valid homography found.
+        - homography: 3x3 numpy array (float32)
+        - inlier_mask: 1D boolean numpy array of length N
+        - num_inliers: number of inliers found
+    """
+    src = np.ascontiguousarray(src_points.flatten(), dtype=np.float32)
+    dst = np.ascontiguousarray(dst_points.flatten(), dtype=np.float32)
+    
+    if len(src) != len(dst) or len(src) < 8:  # Need at least 4 points (8 floats)
+        raise ValueError("src_points and dst_points must have same length with at least 4 points")
+    
+    num_points = len(src) // 2
+    
+    # Output arrays
+    homography = np.zeros(9, dtype=np.float32)
+    inlier_mask = np.zeros(num_points, dtype=np.bool_)
+    
+    c_src = src.ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_dst = dst.ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_homography = homography.ctypes.data_as(ffi.POINTER(ffi.c_float))
+    c_inlier_mask = inlier_mask.ctypes.data_as(ffi.POINTER(ffi.c_bool))
+    
+    result = libfilter.ransac_homography_fitting(
+        c_src,
+        c_dst,
+        ffi.c_size_t(num_points),
+        ffi.c_float(distance_threshold),
+        ffi.c_uint32(max_iterations),
+        ffi.c_uint32(min_inlier_count),
+        c_homography,
+        c_inlier_mask,
+    )
+    
+    if result < 0:
+        if result == -1:
+            print("RANSAC homography: Invalid parameters", file=sys.stderr)
+        elif result == -2:
+            print("RANSAC homography: Too many points", file=sys.stderr)
+        elif result == -3:
+            print("RANSAC homography: No valid homography found", file=sys.stderr)
+        return None
+    
+    return (homography.reshape(3, 3), inlier_mask, result)

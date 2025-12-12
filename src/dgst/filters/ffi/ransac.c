@@ -312,3 +312,251 @@ int32_t ransac_circle_fitting(
     free(xs); free(ys);
     return -5;
 }
+
+// Helper: compute 3x3 homography from 4 point correspondences using DLT
+static int compute_homography_4pt(
+    const float* src_pts,  // [x0,y0, x1,y1, x2,y2, x3,y3]
+    const float* dst_pts,  // [x0,y0, x1,y1, x2,y2, x3,y3]
+    float* H               // output 3x3 homography (row-major)
+) {
+    // Build 8x9 matrix A for DLT
+    // For each correspondence (x,y) -> (x',y'):
+    // [-x, -y, -1,  0,  0,  0, x*x', y*x', x']
+    // [ 0,  0,  0, -x, -y, -1, x*y', y*y', y']
+    
+    float A[8][9];
+    for (int i = 0; i < 4; i++) {
+        float x = src_pts[2*i];
+        float y = src_pts[2*i + 1];
+        float xp = dst_pts[2*i];
+        float yp = dst_pts[2*i + 1];
+        
+        A[2*i][0] = -x;
+        A[2*i][1] = -y;
+        A[2*i][2] = -1;
+        A[2*i][3] = 0;
+        A[2*i][4] = 0;
+        A[2*i][5] = 0;
+        A[2*i][6] = x * xp;
+        A[2*i][7] = y * xp;
+        A[2*i][8] = xp;
+        
+        A[2*i+1][0] = 0;
+        A[2*i+1][1] = 0;
+        A[2*i+1][2] = 0;
+        A[2*i+1][3] = -x;
+        A[2*i+1][4] = -y;
+        A[2*i+1][5] = -1;
+        A[2*i+1][6] = x * yp;
+        A[2*i+1][7] = y * yp;
+        A[2*i+1][8] = yp;
+    }
+    
+    // Solve using simplified SVD-like approach for 8x9 system
+    // We use Gaussian elimination to reduce to null space
+    // Copy A to working matrix
+    float M[8][9];
+    for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < 9; j++) {
+            M[i][j] = A[i][j];
+        }
+    }
+    
+    // Gaussian elimination with partial pivoting
+    for (int col = 0; col < 8; col++) {
+        // Find pivot
+        int max_row = col;
+        float max_val = fabsf(M[col][col]);
+        for (int row = col + 1; row < 8; row++) {
+            if (fabsf(M[row][col]) > max_val) {
+                max_val = fabsf(M[row][col]);
+                max_row = row;
+            }
+        }
+        
+        if (max_val < 1e-10f) {
+            return -1; // Singular matrix
+        }
+        
+        // Swap rows
+        if (max_row != col) {
+            for (int j = 0; j < 9; j++) {
+                float tmp = M[col][j];
+                M[col][j] = M[max_row][j];
+                M[max_row][j] = tmp;
+            }
+        }
+        
+        // Eliminate below
+        for (int row = col + 1; row < 8; row++) {
+            float factor = M[row][col] / M[col][col];
+            for (int j = col; j < 9; j++) {
+                M[row][j] -= factor * M[col][j];
+            }
+        }
+    }
+    
+    // Back substitution to get null space vector (column 9)
+    float h[9];
+    h[8] = 1.0f; // Set h9 = 1
+    
+    for (int i = 7; i >= 0; i--) {
+        float sum = M[i][8]; // This is -h[8] coefficient
+        for (int j = i + 1; j < 8; j++) {
+            sum += M[i][j] * h[j];
+        }
+        if (fabsf(M[i][i]) < 1e-10f) {
+            return -1;
+        }
+        h[i] = -sum / M[i][i];
+    }
+    
+    // Normalize so h[8] = 1 (if not already)
+    if (fabsf(h[8]) > 1e-10f) {
+        for (int i = 0; i < 9; i++) {
+            H[i] = h[i] / h[8];
+        }
+    } else {
+        for (int i = 0; i < 9; i++) {
+            H[i] = h[i];
+        }
+    }
+    
+    return 0;
+}
+
+// Helper: apply homography to a point
+static inline void apply_homography(const float* H, float x, float y, 
+                                    float* xp, float* yp) {
+    float w = H[6] * x + H[7] * y + H[8];
+    if (fabsf(w) < 1e-10f) {
+        *xp = 0;
+        *yp = 0;
+        return;
+    }
+    *xp = (H[0] * x + H[1] * y + H[2]) / w;
+    *yp = (H[3] * x + H[4] * y + H[5]) / w;
+}
+
+int32_t ransac_homography_fitting(
+    const float* src_points,  // Nx2 source points [x0,y0, x1,y1, ...]
+    const float* dst_points,  // Nx2 destination points [x0,y0, x1,y1, ...]
+    size_t num_points,
+    float distance_threshold,
+    uint32_t max_iterations,
+    uint32_t min_inlier_count,
+    float* homography,        // Output 3x3 homography (row-major, 9 floats)
+    bool* inlier_mask         // Output inlier mask (num_points bools), can be NULL
+) {
+    // Validate input parameters
+    if (!src_points || !dst_points || !homography || num_points < 4 ||
+        distance_threshold <= 0.0f || max_iterations == 0 || min_inlier_count < 4) {
+        return -1;
+    }
+
+    if (num_points > 100000) {
+        return -2; // Too many points
+    }
+
+    static int _ransac_seeded_homography = 0;
+    if (!_ransac_seeded_homography) {
+        srand((unsigned) time(NULL));
+        _ransac_seeded_homography = 1;
+    }
+
+    size_t best_inlier_count = 0;
+    float best_H[9] = {0};
+    
+    float sample_src[8]; // 4 points * 2 coords
+    float sample_dst[8];
+    float H[9];
+
+    for (uint32_t iter = 0; iter < max_iterations; iter++) {
+        // Randomly select 4 distinct points
+        size_t indices[4];
+        for (int i = 0; i < 4; i++) {
+            bool unique;
+            do {
+                unique = true;
+                indices[i] = rand() % num_points;
+                for (int j = 0; j < i; j++) {
+                    if (indices[i] == indices[j]) {
+                        unique = false;
+                        break;
+                    }
+                }
+            } while (!unique);
+        }
+
+        // Extract sample points
+        for (int i = 0; i < 4; i++) {
+            sample_src[2*i] = src_points[2*indices[i]];
+            sample_src[2*i+1] = src_points[2*indices[i]+1];
+            sample_dst[2*i] = dst_points[2*indices[i]];
+            sample_dst[2*i+1] = dst_points[2*indices[i]+1];
+        }
+
+        // Compute homography from 4 points
+        if (compute_homography_4pt(sample_src, sample_dst, H) != 0) {
+            continue; // Degenerate configuration
+        }
+
+        // Count inliers
+        size_t inlier_count = 0;
+        for (size_t i = 0; i < num_points; i++) {
+            float x = src_points[2*i];
+            float y = src_points[2*i+1];
+            float xp_expected = dst_points[2*i];
+            float yp_expected = dst_points[2*i+1];
+            
+            float xp, yp;
+            apply_homography(H, x, y, &xp, &yp);
+            
+            float dx = xp - xp_expected;
+            float dy = yp - yp_expected;
+            float dist = sqrtf(dx*dx + dy*dy);
+            
+            if (dist <= distance_threshold) {
+                inlier_count++;
+            }
+        }
+
+        // Update best if current is better
+        if (inlier_count > best_inlier_count && inlier_count >= min_inlier_count) {
+            best_inlier_count = inlier_count;
+            for (int i = 0; i < 9; i++) {
+                best_H[i] = H[i];
+            }
+        }
+    }
+
+    if (best_inlier_count < min_inlier_count) {
+        return -3; // No valid homography found
+    }
+
+    // Copy best homography to output
+    for (int i = 0; i < 9; i++) {
+        homography[i] = best_H[i];
+    }
+
+    // Fill inlier mask if provided
+    if (inlier_mask) {
+        for (size_t i = 0; i < num_points; i++) {
+            float x = src_points[2*i];
+            float y = src_points[2*i+1];
+            float xp_expected = dst_points[2*i];
+            float yp_expected = dst_points[2*i+1];
+            
+            float xp, yp;
+            apply_homography(best_H, x, y, &xp, &yp);
+            
+            float dx = xp - xp_expected;
+            float dy = yp - yp_expected;
+            float dist = sqrtf(dx*dx + dy*dy);
+            
+            inlier_mask[i] = (dist <= distance_threshold);
+        }
+    }
+
+    return (int32_t)best_inlier_count;
+}

@@ -5,7 +5,7 @@ import pytest
 import cv2
 import os
 
-from dgst.ffi.wrapper import canny_edge_detection, gaussian_filter
+from dgst.filters.ffi.wrapper import canny_edge_detection, gaussian_filter
 
 TEST_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "images/lenna.png")
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "outputs")
