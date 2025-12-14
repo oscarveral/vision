@@ -84,7 +84,8 @@ class SignMatcher:
         load_hole: bool = False,
         ratio_threshold: float = 0.75,
         duplicate_threshold: float = 0.7,
-        preprocessor: Callable[[Image], Image] | None = None,
+        reference_preprocessor: Callable[[Image], Image] | None = None,
+        query_preprocessor: Callable[[Image], Image] | None = None,
     ):
         """Inicializa el matcher y carga las referencias.
         
@@ -96,15 +97,16 @@ class SignMatcher:
             duplicate_threshold: Umbral de similitud para rechazar duplicados (0.0-1.0).
                 Si una nueva referencia tiene score >= este umbral con una existente,
                 no se añade. Usar 1.0 para desactivar.
-            preprocessor: Función opcional que preprocesa imágenes antes de extraer
-                features. Recibe Image y devuelve Image procesada.
+            reference_preprocessor: Función que preprocesa imágenes de referencia.
+            query_preprocessor: Función que preprocesa imágenes de consulta.
         """
         self._references_path = Path(references_path)
         self._method = method
         self._matcher_type = matcher_type
         self._ratio_threshold = ratio_threshold
         self._duplicate_threshold = duplicate_threshold
-        self._preprocessor = preprocessor
+        self._reference_preprocessor = reference_preprocessor
+        self._query_preprocessor = query_preprocessor
         self._extractor = LocalDescriptorExtractor()
         self._references: list[tuple[str, Image, ExtractionResult]] = []
         self._load_hole = load_hole
@@ -158,8 +160,8 @@ class SignMatcher:
     
     def _add_reference(self, name: str, image: Image) -> None:
         """Añade una referencia al banco si no es muy similar a una existente."""
-        # No preprocesar referencias - usar imagen original
-        extraction = self._extractor.extract(image, self._method)
+        processed = self._preprocess_reference(image)
+        extraction = self._extractor.extract(processed, self._method)
         if not extraction.has_descriptors():
             return
         
@@ -172,11 +174,17 @@ class SignMatcher:
         
         self._references.append((name, image, extraction))
     
-    def _preprocess(self, image: Image) -> Image:
-        """Aplica preprocesamiento si está configurado."""
-        if self._preprocessor is None:
+    def _preprocess_reference(self, image: Image) -> Image:
+        """Aplica preprocesamiento a imágenes de referencia."""
+        if self._reference_preprocessor is None:
             return image
-        return self._preprocessor(image)
+        return self._reference_preprocessor(image)
+    
+    def _preprocess_query(self, image: Image) -> Image:
+        """Aplica preprocesamiento a imágenes de consulta."""
+        if self._query_preprocessor is None:
+            return image
+        return self._query_preprocessor(image)
     
     @property
     def num_references(self) -> int:
@@ -191,7 +199,7 @@ class SignMatcher:
         if not self._references:
             return []
         
-        processed = self._preprocess(image)
+        processed = self._preprocess_query(image)
         query_ext = self._extractor.extract(processed, self._method)
         if not query_ext.has_descriptors():
             return []
@@ -207,6 +215,161 @@ class SignMatcher:
     def match_roi(self, image: Image, roi: RegionOfInterest, top_k: int = 3) -> list[MatchResult]:
         """Matchea un ROI específico contra las referencias."""
         return self.match(extract_roi_image(image, roi), top_k)
+    
+    def match_geometric(
+        self,
+        image: Image,
+        top_k: int = 3,
+        min_inliers: int = 5,
+        ransac_threshold: float = 10.0,
+        ratio_threshold: float | None = None,
+    ) -> list[tuple[MatchResult, LocalizationResult | None]]:
+        """Matchea usando validación geométrica con RANSAC.
+        
+        Similar a match(), pero usa locate_template internamente para cada
+        referencia. Esto aplica homografía + RANSAC para validar geométricamente
+        los matches, dando resultados más robustos.
+        
+        Args:
+            image: Imagen donde buscar las referencias.
+            top_k: Número de mejores resultados a devolver.
+            min_inliers: Mínimo de inliers para considerar match válido.
+            ransac_threshold: Umbral de reproyección para RANSAC.
+            ratio_threshold: Umbral para ratio test. Si None, usa el del matcher.
+            
+        Returns:
+            Lista de tuplas (MatchResult, LocalizationResult).
+            Si no se encontró localización válida, LocalizationResult es None.
+        """
+        if not self._references:
+            return []
+        
+        results: list[tuple[MatchResult, LocalizationResult | None]] = []
+        
+        for name, ref_img, _ in self._references:
+            locs = self.locate_template(
+                template=ref_img,
+                image=image,
+                min_inliers=min_inliers,
+                ransac_threshold=ransac_threshold,
+                max_detections=1,
+                ratio_threshold=ratio_threshold,
+            )
+            
+            if locs:
+                loc = locs[0]
+                match_result = MatchResult(
+                    reference_name=name,
+                    score=loc.score,
+                    num_matches=loc.num_matches,
+                    num_good_matches=loc.num_matches,
+                )
+                results.append((match_result, loc))
+            else:
+                results.append((MatchResult(name, 0.0, 0, 0), None))
+        
+        results.sort(key=lambda x: x[0].score, reverse=True)
+        return results[:top_k]
+    
+    def match_geometric_roi(
+        self,
+        image: Image,
+        roi: RegionOfInterest,
+        top_k: int = 3,
+        min_inliers: int = 5,
+        ransac_threshold: float = 10.0,
+        ratio_threshold: float | None = None,
+    ) -> list[tuple[MatchResult, LocalizationResult | None]]:
+        """Matchea un ROI específico usando validación geométrica."""
+        return self.match_geometric(
+            extract_roi_image(image, roi),
+            top_k, min_inliers, ransac_threshold,
+            ratio_threshold
+        )
+    
+    def match_geometric_sliding(
+        self,
+        image: Image,
+        top_k: int = 3,
+        window_scale: float = 2.0,
+        overlap: float = 0.5,
+        top_k_candidates: int = 5,
+        min_inliers: int = 5,
+        ransac_threshold: float = 10.0,
+        ratio_threshold: float | None = None,
+        refine_margin: float = 0.5,
+    ) -> list[tuple[MatchResult, LocalizationResult | None]]:
+        """Matchea usando validación geométrica con ventana deslizante.
+        
+        Similar a match_geometric(), pero usa locate_template_sliding para
+        manejar mejor imágenes grandes con templates pequeños.
+        
+        Args:
+            image: Imagen donde buscar las referencias.
+            top_k: Número de mejores resultados a devolver.
+            window_scale: Factor de escala para ventana respecto al template.
+            overlap: Solapamiento entre ventanas (0.0-0.9).
+            top_k_candidates: Candidatos a refinar por referencia.
+            min_inliers: Mínimo de inliers para match válido.
+            ransac_threshold: Umbral de reproyección para RANSAC.
+            ratio_threshold: Umbral para ratio test.
+            refine_margin: Margen adicional para refinamiento.
+            
+        Returns:
+            Lista de tuplas (MatchResult, LocalizationResult).
+        """
+        if not self._references:
+            return []
+        
+        results: list[tuple[MatchResult, LocalizationResult | None]] = []
+        
+        for name, ref_img, _ in self._references:
+            locs = self.locate_template_sliding(
+                template=ref_img,
+                image=image,
+                window_scale=window_scale,
+                overlap=overlap,
+                top_k_candidates=top_k_candidates,
+                min_inliers=min_inliers,
+                ransac_threshold=ransac_threshold,
+                ratio_threshold=ratio_threshold,
+                refine_margin=refine_margin,
+            )
+            
+            if locs:
+                loc = locs[0]
+                match_result = MatchResult(
+                    reference_name=name,
+                    score=loc.score,
+                    num_matches=loc.num_matches,
+                    num_good_matches=loc.num_matches,
+                )
+                results.append((match_result, loc))
+            else:
+                results.append((MatchResult(name, 0.0, 0, 0), None))
+        
+        results.sort(key=lambda x: x[0].score, reverse=True)
+        return results[:top_k]
+    
+    def match_geometric_sliding_roi(
+        self,
+        image: Image,
+        roi: RegionOfInterest,
+        top_k: int = 3,
+        window_scale: float = 2.0,
+        overlap: float = 0.5,
+        top_k_candidates: int = 5,
+        min_inliers: int = 5,
+        ransac_threshold: float = 10.0,
+        ratio_threshold: float | None = None,
+        refine_margin: float = 0.5,
+    ) -> list[tuple[MatchResult, LocalizationResult | None]]:
+        """Matchea un ROI usando validación geométrica con ventana deslizante."""
+        return self.match_geometric_sliding(
+            extract_roi_image(image, roi),
+            top_k, window_scale, overlap, top_k_candidates,
+            min_inliers, ransac_threshold, ratio_threshold, refine_margin
+        )
     
     def _compute_match_score(
         self, query: ExtractionResult, ref: ExtractionResult
@@ -245,7 +408,7 @@ class SignMatcher:
         
         score = min(1.0, n_good / query.num_keypoints) if query.num_keypoints > 0 else 0.0
         return score, n_all, n_good
-    
+
     def locate_template(
         self,
         template: Image,
@@ -254,15 +417,11 @@ class SignMatcher:
         ransac_threshold: float = 10.0,
         max_detections: int = 10,
         ratio_threshold: float | None = None,
-        min_template_size: int = 100,
     ) -> list[LocalizationResult]:
         """Localiza múltiples instancias de un template en una imagen usando RANSAC.
         
         Usa RANSAC iterativo: encuentra una instancia, elimina los inliers usados,
         y repite hasta que no se encuentren más matches válidos.
-        
-        Si el template es pequeño (menor que min_template_size en cualquier dimensión),
-        se escala automáticamente para mejorar la detección de keypoints.
         
         Args:
             template: Imagen del template a buscar.
@@ -271,40 +430,24 @@ class SignMatcher:
             ransac_threshold: Umbral de reproyección para RANSAC (píxeles).
             max_detections: Máximo de detecciones a encontrar.
             ratio_threshold: Umbral para ratio test de Lowe. Si None, usa el del matcher.
-                Valores más altos (0.8-0.9) son más permisivos.
-            min_template_size: Tamaño mínimo del template. Si el template es menor,
-                se escala automáticamente para mejorar la extracción de features.
             
         Returns:
             Lista de LocalizationResult con todas las localizaciones encontradas.
         """
-        h_t_orig, w_t_orig = template.data.shape[:2]
+        h_t, w_t = template.data.shape[:2]
         h_img, w_img = image.data.shape[:2]
         
-        # Escalar template si es muy pequeño para obtener mejores keypoints
-        scale_factor = 1.0
-        if min(h_t_orig, w_t_orig) < min_template_size:
-            scale_factor = min_template_size / min(h_t_orig, w_t_orig)
-            new_w = int(w_t_orig * scale_factor)
-            new_h = int(h_t_orig * scale_factor)
-            scaled_data = cv2.resize(template.data, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-            template_scaled = Image(data=scaled_data, rois=[])
-        else:
-            template_scaled = template
-        
-        h_t_scaled, w_t_scaled = template_scaled.data.shape[:2]
-        
-        template_processed = self._preprocess(template_scaled)
+        # Template usa reference preprocessor, imagen usa query preprocessor
+        template_processed = self._preprocess_reference(template)
         template_ext = self._extractor.extract(template_processed, self._method)
         if not template_ext.has_descriptors():
             return []
         
-        image_processed = self._preprocess(image)
+        image_processed = self._preprocess_query(image)
         image_ext = self._extractor.extract(image_processed, self._method)
         if not image_ext.has_descriptors():
             return []
         
-        # Usar ratio_threshold pasado o el del matcher
         effective_ratio = ratio_threshold if ratio_threshold is not None else self._ratio_threshold
         
         desc_t = template_ext._descriptors
@@ -315,14 +458,12 @@ class SignMatcher:
         results: list[LocalizationResult] = []
         
         for _ in range(max_detections):
-            # Matching: template -> scene (estándar para localización)
             try:
                 matches = self._matcher.knnMatch(desc_t, desc_i, k=2)
             except cv2.error:
                 break
             
             # Ratio test, excluyendo keypoints ya usados
-            # m.queryIdx = índice en template, m.trainIdx = índice en imagen
             good_matches = []
             for match_pair in matches:
                 if len(match_pair) == 2:
@@ -334,9 +475,6 @@ class SignMatcher:
             if len(good_matches) < 4:
                 break
             
-            # Obtener puntos correspondientes
-            # Los keypoints del template están en coordenadas escaladas,
-            # los de la imagen están en coordenadas originales
             pts_template = np.float32([
                 template_ext.keypoints[m.queryIdx].position for m in good_matches
             ]).reshape(-1, 1, 2)
@@ -344,7 +482,6 @@ class SignMatcher:
                 image_ext.keypoints[m.trainIdx].position for m in good_matches
             ]).reshape(-1, 1, 2)
             
-            # Estimar homografía con RANSAC
             try:
                 H, mask = cv2.findHomography(pts_template, pts_image, cv2.RANSAC, ransac_threshold)
             except cv2.error:
@@ -358,9 +495,9 @@ class SignMatcher:
             if num_inliers < min_inliers:
                 break
             
-            # Proyectar esquinas del template (en coordenadas escaladas)
+            # Proyectar esquinas del template
             template_corners = np.float32([
-                [0, 0], [w_t_scaled, 0], [w_t_scaled, h_t_scaled], [0, h_t_scaled]
+                [0, 0], [w_t, 0], [w_t, h_t], [0, h_t]
             ]).reshape(-1, 1, 2)
             
             try:
@@ -368,7 +505,6 @@ class SignMatcher:
             except cv2.error:
                 break
             
-            # Calcular bounding box
             projected = projected.reshape(-1, 2)
             x_min = int(max(0, np.min(projected[:, 0])))
             y_min = int(max(0, np.min(projected[:, 1])))
@@ -383,7 +519,7 @@ class SignMatcher:
             
             results.append(LocalizationResult(True, score, bbox, num_inliers))
             
-            # Marcar inliers como usados para la siguiente iteración
+            # Marcar inliers como usados
             mask_flat = mask.flatten()
             for i, m in enumerate(good_matches):
                 if mask_flat[i]:
@@ -440,8 +576,8 @@ class SignMatcher:
                 max_detections=1, ratio_threshold=ratio_threshold
             )
         
-        # Extraer features del template una sola vez
-        template_processed = self._preprocess(template)
+        # Extraer features del template una sola vez (usa reference preprocessor)
+        template_processed = self._preprocess_reference(template)
         template_ext = self._extractor.extract(template_processed, self._method)
         if not template_ext.has_descriptors():
             return []
@@ -462,7 +598,7 @@ class SignMatcher:
                 patch = Image(data=patch_data, rois=[])
                 
                 # Calcular score de matching rápido
-                patch_processed = self._preprocess(patch)
+                patch_processed = self._preprocess_query(patch)
                 patch_ext = self._extractor.extract(patch_processed, self._method)
                 
                 if not patch_ext.has_descriptors():
@@ -564,14 +700,13 @@ class SignMatcher:
         ransac_threshold: float = 10.0,
         max_detections: int = 10,
         ratio_threshold: float | None = None,
-        min_template_size: int = 100,
     ) -> list[list[LocalizationResult]]:
         """Localiza un template en múltiples imágenes.
         
         Returns:
             Lista de listas. Cada sublista contiene las localizaciones para esa imagen.
         """
-        return [self.locate_template(template, img, min_inliers, ransac_threshold, max_detections, ratio_threshold, min_template_size) for img in images]
+        return [self.locate_template(template, img, min_inliers, ransac_threshold, max_detections, ratio_threshold) for img in images]
     
     def locate_template_sliding_batch(
         self,
@@ -615,7 +750,7 @@ class SignMatcher:
             raise ValueError(f"Reference not found: {reference_name}")
         
         ref_img, ref_ext = ref
-        query_processed = self._preprocess(query)
+        query_processed = self._preprocess_query(query)
         query_ext = self._extractor.extract(query_processed, self._method)
         
         img1, img2 = self._prepare_images_for_viz(query, ref_img)
@@ -652,28 +787,34 @@ class SignMatcher:
         max_matches: int = 100,
         ratio_threshold: float | None = None,
         draw_homography: bool = True,
-        min_template_size: int = 100,
+        draw_rois: bool = False,
+        roi_color: tuple[int, int, int] = (255, 0, 0),
     ) -> Image:
-        """Visualiza matches entre un template pequeño y una imagen de escena.
+        """Visualiza matches entre un template y una imagen de escena.
         
         Args:
-            template: Imagen del template (pequeña).
-            image: Imagen de escena (grande).
+            template: Imagen del template.
+            image: Imagen de escena.
             max_matches: Máximo de matches a dibujar.
             ratio_threshold: Umbral para ratio test. Si None, usa el del matcher.
             draw_homography: Si True, dibuja el contorno proyectado del template.
-            min_template_size: Tamaño mínimo para escalar el template.
+            draw_rois: Si True, dibuja los ROIs de la imagen de escena.
+            roi_color: Color para dibujar los ROIs.
             
         Returns:
             Imagen con template a la izquierda y escena con matches a la derecha.
         """
-        template_scaled, scale_factor = self._scale_template(template, min_template_size)
-        h_t_scaled, w_t_scaled = template_scaled.data.shape[:2]
+        h_t, w_t = template.data.shape[:2]
         
-        template_ext = self._extractor.extract(self._preprocess(template_scaled), self._method)
-        image_ext = self._extractor.extract(self._preprocess(image), self._method)
+        # Template usa reference preprocessor, imagen usa query preprocessor
+        template_ext = self._extractor.extract(self._preprocess_reference(template), self._method)
+        image_ext = self._extractor.extract(self._preprocess_query(image), self._method)
         
-        img1, img2 = self._prepare_images_for_viz(template_scaled, image)
+        img1, img2 = self._prepare_images_for_viz(template, image)
+        
+        # Dibujar ROIs si se solicita
+        if draw_rois and image.rois:
+            self._draw_rois_on_image(img2, image.rois, roi_color)
         
         if not template_ext.has_descriptors() or not image_ext.has_descriptors():
             return self._concat_images(img1, img2)
@@ -689,7 +830,7 @@ class SignMatcher:
         if draw_homography and len(good_matches) >= 4:
             H = self._draw_homography_on_image(
                 template_ext, image_ext, good_matches,
-                w_t_scaled, h_t_scaled, img2
+                w_t, h_t, img2
             )
         
         kp1 = [kp._cv_kp for kp in template_ext.keypoints]
@@ -706,7 +847,6 @@ class SignMatcher:
             "technique": "visualize_template_match",
             "num_matches": len(good_matches),
             "homography_found": H is not None,
-            "scale_factor": scale_factor,
         })
         return result
     
@@ -717,7 +857,6 @@ class SignMatcher:
         max_matches: int = 100,
         ratio_threshold: float | None = None,
         draw_homography: bool = True,
-        min_template_size: int = 100,
     ) -> list[Image]:
         """Visualiza matches de un template contra múltiples imágenes.
         
@@ -727,10 +866,111 @@ class SignMatcher:
         return [
             self.visualize_template_match(
                 template, img, max_matches, ratio_threshold,
-                draw_homography, min_template_size
+                draw_homography
             )
             for img in images
         ]
+    
+    def visualize_geometric_match(
+        self,
+        image: Image,
+        results: list[tuple[MatchResult, LocalizationResult | None]],
+        max_to_show: int = 5,
+        bbox_color: tuple[int, int, int] = (0, 255, 0),
+        show_references: bool = True,
+        draw_rois: bool = False,
+        roi_color: tuple[int, int, int] = (255, 0, 0),
+    ) -> Image:
+        """Visualiza resultados de match_geometric.
+        
+        Muestra la imagen con bounding boxes de las referencias encontradas.
+        Opcionalmente muestra las imágenes de referencia a la izquierda.
+        
+        Args:
+            image: Imagen original donde se buscó.
+            results: Resultados de match_geometric.
+            max_to_show: Máximo de resultados a mostrar.
+            bbox_color: Color de los bounding boxes.
+            show_references: Si True, muestra las referencias a la izquierda.
+            draw_rois: Si True, dibuja los ROIs de la imagen.
+            roi_color: Color para dibujar los ROIs.
+            
+        Returns:
+            Imagen con visualización de matches.
+        """
+        # Guardar ROIs antes de preprocesar
+        original_rois = image.rois
+        
+        # Filtrar resultados válidos
+        image = self._preprocess_query(image)
+        valid_results = [(m, loc) for m, loc in results if loc is not None][:max_to_show]
+        
+        if not valid_results:
+            # Sin resultados, devolver imagen original
+            img = image.data if image.is_color else cv2.cvtColor(image.data, cv2.COLOR_GRAY2BGR)
+            return Image(data=img.copy(), rois=[])
+        
+        # Preparar imagen de escena
+        scene = image.data.copy() if image.is_color else cv2.cvtColor(image.data, cv2.COLOR_GRAY2BGR)
+        
+        # Dibujar ROIs si se solicita
+        if draw_rois and original_rois:
+            self._draw_rois_on_image(scene, original_rois, roi_color)
+        
+        # Dibujar bounding boxes y etiquetas
+        for i, (match, loc) in enumerate(valid_results):
+            if loc.bounding_box:
+                x, y, w, h = loc.bounding_box
+                cv2.rectangle(scene, (x, y), (x + w, y + h), bbox_color, 2)
+                label = f"#{i+1} {match.reference_name} ({loc.score:.0%})"
+                cv2.putText(scene, label, (x, y - 5), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, bbox_color, 2)
+        
+        if not show_references:
+            result = Image(data=scene, rois=[])
+            result.metadata.add_step({
+                "technique": "visualize_geometric_match",
+                "num_found": len(valid_results),
+            })
+            return result
+        
+        # Crear panel de referencias a la izquierda
+        ref_height = scene.shape[0] // max(1, len(valid_results))
+        ref_width = int(ref_height * 1.2)  # Aspect ratio aproximado
+        
+        ref_panel = np.zeros((scene.shape[0], ref_width, 3), dtype=np.uint8)
+        
+        for i, (match, loc) in enumerate(valid_results):
+            ref_img = self.get_reference_image(match.reference_name)
+            if ref_img is not None:
+                # Redimensionar referencia
+                ref_data = ref_img.data if ref_img.is_color else cv2.cvtColor(ref_img.data, cv2.COLOR_GRAY2BGR)
+                h_ref, w_ref = ref_data.shape[:2]
+                scale = min(ref_width / w_ref, ref_height / h_ref) * 0.9
+                new_w, new_h = int(w_ref * scale), int(h_ref * scale)
+                resized = cv2.resize(ref_data, (new_w, new_h))
+                
+                # Calcular posición centrada
+                y_start = i * ref_height + (ref_height - new_h) // 2
+                x_start = (ref_width - new_w) // 2
+                
+                if y_start + new_h <= ref_panel.shape[0]:
+                    ref_panel[y_start:y_start+new_h, x_start:x_start+new_w] = resized
+                
+                # Añadir número
+                cv2.putText(ref_panel, f"#{i+1}", (5, i * ref_height + 20),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, bbox_color, 2)
+        
+        # Concatenar panel de referencias con escena
+        result_data = np.hstack([ref_panel, scene])
+        
+        result = Image(data=result_data, rois=[])
+        result.metadata.add_step({
+            "technique": "visualize_geometric_match",
+            "num_found": len(valid_results),
+            "references_shown": [m.reference_name for m, _ in valid_results],
+        })
+        return result
     
     def visualize_localization(
         self,
@@ -738,9 +978,24 @@ class SignMatcher:
         image: Image,
         localizations: list[LocalizationResult],
         bbox_color: tuple[int, int, int] = (0, 255, 0),
+        draw_rois: bool = False,
+        roi_color: tuple[int, int, int] = (255, 0, 0),
     ) -> Image:
-        """Visualiza localizaciones de un template en una imagen."""
+        """Visualiza localizaciones de un template en una imagen.
+        
+        Args:
+            template: Imagen del template.
+            image: Imagen donde se buscó.
+            localizations: Resultados de locate_template.
+            bbox_color: Color de los bounding boxes.
+            draw_rois: Si True, dibuja los ROIs de la imagen.
+            roi_color: Color para dibujar los ROIs.
+        """
         img1, img2 = self._prepare_images_for_viz(template, image)
+        
+        # Dibujar ROIs si se solicita
+        if draw_rois and image.rois:
+            self._draw_rois_on_image(img2, image.rois, roi_color)
         
         for i, loc in enumerate(localizations):
             if loc.found and loc.bounding_box:
@@ -783,19 +1038,6 @@ class SignMatcher:
     # Métodos auxiliares privados
     # -------------------------------------------------------------------------
     
-    def _scale_template(
-        self, template: Image, min_size: int
-    ) -> tuple[Image, float]:
-        """Escala un template si es menor que min_size."""
-        h, w = template.data.shape[:2]
-        if min(h, w) >= min_size:
-            return template, 1.0
-        
-        scale = min_size / min(h, w)
-        new_w, new_h = int(w * scale), int(h * scale)
-        scaled = cv2.resize(template.data, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-        return Image(data=scaled, rois=[]), scale
-    
     def _prepare_images_for_viz(
         self, img1: Image, img2: Image
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -813,6 +1055,25 @@ class SignMatcher:
         result[:h1, :w1] = img1
         result[:h2, w1:w1+w2] = img2
         return Image(data=result, rois=[])
+    
+    def _draw_rois_on_image(
+        self,
+        img: np.ndarray,
+        rois: list[RegionOfInterest],
+        color: tuple[int, int, int] = (255, 0, 0),
+        thickness: int = 2,
+    ) -> None:
+        """Dibuja ROIs en una imagen (modifica la imagen in-place).
+        
+        Args:
+            img: Imagen numpy donde dibujar.
+            rois: Lista de ROIs a dibujar.
+            color: Color de las líneas.
+            thickness: Grosor de las líneas.
+        """
+        for roi in rois:
+            pts = np.array([roi.p1, roi.p2, roi.p3, roi.p4], dtype=np.int32)
+            cv2.polylines(img, [pts], True, color, thickness)
     
     def _get_good_matches(
         self,
