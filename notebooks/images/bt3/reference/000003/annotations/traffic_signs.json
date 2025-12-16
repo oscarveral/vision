@@ -1,0 +1,40 @@
+[
+    {
+        "geometry": {
+            "coordinates": [
+                [
+                    0,
+                    1000
+                ],
+                [
+                    1000,
+                    1000
+                ],
+                [
+                    1000,
+                    0
+                ],
+                [
+                    0,
+                    0
+                ]
+            ],
+            "type": "MultiPoint"
+        },
+        "properties": {
+            "annotation_uuid": "006b6759-192f-43de-84cf-373e454304b0",
+            "class": "NotListed",
+            "complementary_to_landmark": "None",
+            "contains_inner_signs": true,
+            "content_contains_text": false,
+            "is_for_construction": false,
+            "is_for_ego_lane": "False",
+            "is_for_ego_road": "True",
+            "is_for_other_traffic_participant": "False",
+            "is_on_dynamic_object": false,
+            "occlusion_ratio": "None",
+            "unclear": false,
+            "is_electronic": false
+        }
+    }
+]
