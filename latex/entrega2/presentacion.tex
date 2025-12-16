@@ -44,7 +44,7 @@
   \tableofcontents
 \end{frame}
 
-\section{Descriptores Locales y Matching}
+\section{BT3: Hand-engineered features y reconocimiento robusto de objetos}
 
 \begin{frame}{Comparación de Descriptores Locales}
   \begin{columns}
@@ -56,11 +56,11 @@
       \item \textbf{ORB}: Muy rápido, menos preciso
     \end{itemize}
     
-    \textbf{Ratio test de Lowe} para filtrar matches incorrectos
-    \hfill
+    \textbf{Ratio test de Lowe} para filtrar matches incorrectos: 0.75
+
     \column{0.55\textwidth}
     \begin{figure}
-      \includegraphics[width=\textwidth]{images/keypoints_comparisons.png}
+      \includegraphics[width=0.56\textwidth]{images/keypoints_comparisons.png}
       \caption{Puntos clave detectados}
     \end{figure}
   \end{columns}
@@ -68,7 +68,7 @@
 
 \begin{frame}{Robustez ante Transformaciones}
   \begin{columns}
-    \column{0.5\textwidth}
+    \column{0.4\textwidth}
     \textbf{Repetibilidad por transformación:}
     
     \vspace{0.2cm}
@@ -86,7 +86,7 @@
       \item ORB: 23.7\%
     \end{itemize}
     
-    \column{0.5\textwidth}
+    \column{0.6\textwidth}
     \begin{figure}
       \includegraphics[width=\textwidth]{images/matching_sift_complex.png}
       \caption{Matching SIFT con transformación compleja}
@@ -114,13 +114,11 @@
     
     \column{0.5\textwidth}
     \begin{figure}
-      \includegraphics[width=\textwidth]{images/good_matching2.png}
+      \includegraphics[width=\textwidth]{images/good_matching.png}
       \caption{Resultado de matching con RANSAC}
     \end{figure}
   \end{columns}
 \end{frame}
-
-\section{Clasificador HOG+SVM}
 
 \begin{frame}{Enfoque HOG+SVM}
   \textbf{Algoritmo HOG implementado desde cero:}
@@ -212,24 +210,16 @@
   \end{figure}
 \end{frame}
 
-\section*{Conclusiones}
+\section{BT4: Deep Learning para visión por computador}
 
-\begin{frame}{Conclusiones}
-  \textbf{Descriptores locales:}
-  \begin{itemize}
-    \item SIFT más robusto globalmente
-    \item Template matching limitado en condiciones reales
-  \end{itemize}
+\begin{frame}{YOLOv8 para Detección de Señales}
   
-  \vspace{0.3cm}
-  \textbf{Clasificador HOG+SVM:}
-  \begin{itemize}
-    \item Buena clasificación a nivel de parche
-    \item Problema: etiquetado del dataset y generalización
-  \end{itemize}
   
-  \vspace{0.5cm}
-  \centering
+
+\end{frame}
+
+\begin{frame}{Resultados de entrenamiento}
+  
 \end{frame}
 
 \end{document}
