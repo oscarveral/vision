@@ -37,4 +37,4 @@ line-length = 120
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-packages = [ "dgst" ]
+packages = [ "dgst", "rara" ]

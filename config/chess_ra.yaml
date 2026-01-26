@@ -1,0 +1,22 @@
+camera:
+  calibration_file: "camera_calibration_1280x720.npz"
+  index: 2
+  width: 1280
+  height: 720
+
+game:
+  scale: 1.0
+
+assets:
+  # Rutas a los perfiles de revolución (.chsp)
+  pieces:
+    P: "resources/assets/P.chsp"
+    R: "resources/assets/R.chsp"
+    N: "resources/assets/N.chsp"
+    B: "resources/assets/B.chsp"
+    Q: "resources/assets/Q.chsp"
+    K: "resources/assets/K.chsp"
+
+positions:
+  folder: "resources/partidas"        # Carpeta con los .fen
+  initial_file: "start.fen" # Archivo con la posición inicial (o 'default' para estándar)

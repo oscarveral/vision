@@ -90,11 +90,16 @@ Todas las referencias a código fuente, notebooks y datos se encuentran en el re
   \item \textbf{BT3b}: Matching entre imágenes.
   \item \textbf{BT3c}: Estimación robusta de transformaciones.
   \item \textbf{BT3kp}: Implementación de un clasificador HOG+SVM para detección de señales de tráfico.
+  \item \textbf{BT4b}: Evaluación y métricas en DL.
+  \item \textbf{BT4g}: Detección de objetos con modelos preentrenados.
+  \item \textbf{BT4r}: Exportación y despliegue de modelos.
 \end{itemize}
+
+\clearpage
 
 \section{BT3: Hand-engineered features y reconocimiento robusto de objetos}
 
-En esta sección se describe las tecnicas aplicadas para la detección y reconocimiento de señales de tráfico en imágenes utilizando descriptores locales y 
+En esta sección se describen las técnicas aplicadas para la detección y reconocimiento de señales de tráfico en imágenes utilizando descriptores locales y 
 métodos de matching robustos. Partimos del dataset ya mencionado anteriormente, en el que disponemos de 
 imágenes de escenas de conducción en diferentes entornos, además de toda la infraestructura desarrollada
 para el procesamiento de imágenes.
@@ -112,7 +117,7 @@ ORB, utilizando las implementaciones disponibles en OpenCV.
 
 De momento trabajaremos con el mismo set de imágenes de prueba que se ha 
 utilizado en los bloques anteriores, que contienen señales de tráfico en 
-distintas condiciones de iluminación y entornos. EL objetivo de esta sección 
+distintas condiciones de iluminación y entornos. El objetivo de esta sección 
 es comparar el rendimiento de los diferentes descriptores locales en el 
 matching de entre imágenes del dataset y dichas imágenes transformadas.
 
@@ -126,12 +131,12 @@ detectados con cada método en una imagen de prueba representativa:
     \label{fig:keypoints_comparison}
 \end{figure}
 
-Observese cómo varían los puntos clave detectados por cada método 
-en la misma imagen. Akaze tiende a detectar más puntos clave de
+Obsérvese cómo varían los puntos clave detectados por cada método 
+en la misma imagen. AKAZE tiende a detectar más puntos clave de
 forma más exhaustiva, mientras que SIFT es algo más general y ORB es 
 mucho menos preciso, 
 enfocándose en puntos de interés muy generales y quizás menos 
-precisos. Es interesante entonces observar como pueden influenciar
+precisos. Es interesante entonces observar la manera en la que pueden influenciar
 transformaciones arbitrarias en la detección de puntos clave según
 el método empleado. Para ello, nos valemos de nuestro procesador 
 de imagenes para aplicar diferences transformaciones y observar 
@@ -145,7 +150,7 @@ los resultados.
 \end{figure}
 
 Visualmente, se aprecia como se mantienen correctamente los puntos 
-clave detectados tras la rotación. Veamos numericamente los resultados
+clave detectados tras la rotación. Veamos numéricamente los resultados
 para obtener conclusiones más precisas y una representación 
 visual del matching entre puntos realizado. 
  
@@ -205,16 +210,16 @@ los resultados obtenidos son los siguientes:
     \end{itemize}
 \end{itemize}
 
-Nótose que en nuestra implementación hemos tratado los puntos clave que 
-se han matcheado de form que un punto clave original sólo puede matchearse
+Nótese que en nuestra implementación hemos tratado los puntos clave que 
+se han emparejado de forma que un punto clave original sólo puede asociarse
 con un punto clave transformado. Esto puede reducir el número de matches
 obtenidos, pero permite un calculo fiable de la tasa de repetibilidad.
 No tiene sentido en este tipo de análisis que un punto clave original
-matchee con varios puntos clave transformados, sobre todo si no estamos
+haga match con varios puntos clave transformados, sobre todo si no estamos
 aplicando en nuestro dominio transformaciones que puedan generar
 duplicados (como reflejos o simetrías).
 
-Los 3 métodos presentan tasas de repetibilidad similares y medianamente
+Los tres métodos presentan tasas de repetibilidad similares y medianamente
 altas, teniendo en cuenta que la rotación recorta la imagen. Akaze
 presenta la tasa más alta, seguido de ORB y SIFT. En cuanto al tiempo
 de extracción, ORB es con diferencia el más rápido, seguido de Akaze
@@ -263,11 +268,11 @@ originales y con ruido gaussiano para cada método.
 \begin{figure}
     \centering
     \includegraphics[width=0.6\textwidth]{images/matching_noised.png}
-    \caption{Visualización de punts clave originales y con ruido gaussiano.}
+    \caption{Visualización de puntos clave originales y con ruido gaussiano.}
     \label{fig:matches_noised}
 \end{figure}
 
-Probando con cambbios de escala obtenemos los siguientes resultados de repetibilidad:
+Probando con cambios de escala obtenemos los siguientes resultados de repetibilidad:
 \begin{itemize}
     \item \textbf{AKAZE}: 32.0\%.
     \item \textbf{SIFT}: 43.4\%.
@@ -302,13 +307,13 @@ imagen original y escalada.
     \label{fig:matches_scaled}
 \end{figure}
 
-A partir de lo desarrollado, sería intersante obserbar los puntos clave
+A partir de lo desarrollado, sería interesante observar los puntos clave
 localizados en imágenes que han sido sometidas a transformaciones más complejas,
 como puede serlo el mapeo al espacio HSV y la segmentación por color, 
 que se desarrolló para la detección de bordes con RANSAC en BT1 y BT2.
 
 Aplicar esta transformación hace que los algoritmos de extracción de
-descriptores locales se focalizen en otras regiones de la imagen,
+descriptores locales se focalicen en otras regiones de la imagen,
 lo que nos interesa ya que ahora destacamos mejor las señales de tráfico.
 La figura \ref{fig:matches_hsv} muestra los puntos clave detectados
 en su transformación HSV y segmentación por color. Hablar de repetibilidad
@@ -322,7 +327,7 @@ es precisamente cambiar el foco de atención de los detectores de puntos clave.
     \label{fig:matches_hsv}
 \end{figure}
 
-Como apunte adicional, en nuestros experimentos, hemos observado también como las tecnicas
+Como apunte adicional, en nuestros experimentos hemos observado también como las tecnicas
 de contraste dinamico (CLAHE) permite mejorar un poco más el matching
 entre imágenes, al resaltar mejor las regiones de interés. 
 
@@ -385,7 +390,7 @@ un ejemplo de este mal resultado.
 
 Es necesario aplicar RANSAC para hacer una estimación robusta de las
 homografías a partir de los descriptores matcheados. Así se filtran
-los matches incorrectos y se obtiene, teoricamente, una localización 
+los matches incorrectos y se obtiene, teóricamente, una localización 
 precisa de las señales. Véase en la figura \ref{fig:good_matching} un ejemplo
 de un resultado de calidad mixta al aplicar RANSAC. La señal de paso de 
 peatones es localizada correctamente, pero tenemos un 
@@ -398,8 +403,8 @@ falso positivo muy grande con la señal de stop.
     \label{fig:good_matching}
 \end{figure}
 
-En el resto de imágenes con las que se ha probado, tambien ocurren resultados
-parecidos o peores. Casi nunca logramos matchear ninguna señal correctamente,
+En el resto de imágenes con las que se ha probado, también ocurren resultados
+parecidos o peores. Casi nunca logramos matchear ninguna señal correctamente
 y a menudo se producen falsos positivos muy grandes. Véase en las figuras \ref{fig:good_matching_2}
 y \ref{fig:bad_matching_2} dos ejemplos adicionales de resultados obtenidos. En la primera
 se identifica correctamente una señal, pero en la segunda no se identifica ninguna
@@ -558,7 +563,7 @@ el clasificador en modo ventana deslizante, y se han comparado las detecciones
 obtenidas con las anotaciones de señales reales. Los resultados se muestran en la tabla
 \ref{tab:hog_skimage_detection}.
 
-Tengase en cuenta que las clasificaciones no son resultados binarios,
+Téngase en cuenta que las clasificaciones no son resultados binarios,
 sino que se obtiene una puntuación de confianza para cada ventana.
 Se ha seleccionado un umbral de 0.5 para considerar una ventana como detección positiva.
 
@@ -705,7 +710,7 @@ el segmentado por color en espacio HSV expuesto en bloques anteriores.
 
 En esta versión con preprocesado, hemos intentado maximizar GT Coverage,
 ya que queremos asegurarnos de detectar el mayor número posible de señales reales,
-aunque a costa de aumentar los falsos positivos. Para ello se ha relajad el umbral
+aunque a costa de aumentar los falsos positivos. Para ello se ha relajado el umbral
 de detección a -0.3 (en lugar de 0.5 original). Aun así, el GT Coverage
 mejora sólo un 2\% sobre el total respecto a la versión sin preprocesado.
 
@@ -850,13 +855,14 @@ por lo que el clasificador no puede aprender a detectarlas correctamente.
 A estas alturas, un enfoque basado en Deep Learning con una red neuronal convolucional
 sería probablemente más adecuado para este problema, que se verá en el siguiente bloque de trabajo.
 
+\clearpage
+
 \section{BT4 - Deep Learning para visión por computador}
 
 Para las aplicaciones de Deep Learning hemos querido centrarnos en la detección de objetos. En el caso de nuestro dataset,
-buscamos detecctar señales de tráfico. Para esta tarea, hemos escogido reentrenar modelos de la familia YOLOv8.
+buscamos detectar señales de tráfico. Para esta tarea, hemos escogido reentrenar modelos de la familia YOLOv8.
 
-\textit{Items de evaluación: \underline{\textbf{BT1h}},
-\underline{\textbf{BT1ewc}}.}
+\textit{Items de evaluación: \underline{\textbf{BT4g}}}
 
 \subsection{Arquitectura del modelo}
 
@@ -865,7 +871,6 @@ Para la detección de las señales, hemos seleccionado la arquitectura \textbf{Y
 Este modelo pertenece a la familia de detectores de una sola etapa (\textit{one-stage detectors}), 
 lo que significa que realiza la predicción de las cajas delimitadoras y las probabilidades de clase en 
 una única pasada por la red neuronal, optimizando el equilibrio entre velocidad de inferencia y precisión.
-
 La arquitectura YOLOv8 se basa en una combinación de bloques convolucionales que se organizan en tres etapas:
 
 \begin{itemize}
@@ -888,7 +893,7 @@ YOLOv8 requiere que los datos estén en un formato específico donde cada imagen
 con el mismo nombre, donde cada línea representa un objeto detectado en el formato normalizado:
 \[ \text{<clase>} \ \text{<x\_centro>} \ \text{<y\_centro>} \ \text{<ancho>} \ \text{<alto>} \]
 donde todas las coordenadas están normalizadas entre 0 y 1 respecto a las dimensiones de la imagen.
-Además, durante las primeras iteraciones experimentales, detectamos que el uso directo de las anotaciones originales impedía la correcta convergencia del modelo 
+Además, encontramos que el uso directo de las anotaciones originales impedía la correcta convergencia del modelo 
 debido a dos factores críticos: la presencia de coordenadas erróneas (valores negativos o fuera de los límites de la imagen) y la existencia 
 de señales de tráfico extremadamente pequeñas (ruido) captadas a muy larga distancia.
 
@@ -897,22 +902,23 @@ implementamos un pipeline de curación de datos en Python (\texttt{zod2yolo.py})
 aplica las siguientes transformaciones:
 
 \begin{itemize}
-    \item \textbf{Conversión y Normalización:} Transformación de las coordenadas absolutas del 
+    \item \textbf{Conversión y normalización:} transformación de las coordenadas absolutas del 
             fichero \texttt{object\_detection.json} original a las coordenadas relativas requeridas por YOLO 
             tomando como referencia la resolución de las imágenes ($3848 \times 2168$).
     
-    \item \textbf{Clamping de Coordenadas:} Aplicamos una función de recorte (\textit{clamping}) 
+    \item \textbf{Clamping de coordenadas:} aplicamos una función de recorte (\textit{clamping}) 
             para asegurar que ninguna caja (\textit{bounding box}) excediera los límites de la imagen, 
             corrigiendo valores negativos o fuera de los límites que generan errores en el cálculo de la pérdida.
             Cabe destacar que los delimitadores originales de ZOD no son rectángulos, sino polígonos de cuatro puntos.
             Así pues, para cada caja, calculamos el rectángulo mínimo que la contiene y aplicamos el clamping sobre este.
     
-    \item \textbf{Filtrado por Tamaño Mínimo:} Establecemos un umbral de filtrado para descartar cualquier 
+    \item \textbf{Filtrado por tamaño mínimo:} establecemos un umbral de filtrado para descartar cualquier 
             objeto cuya área fuera inferior a $15 \times 15$ píxeles. Esta medida es necesaria
             para poder entrenar el modelo para detectar las señales de tráfico más relevantes
-            para el conductor, pues estas son las que aparecen con un tamaño suficiente en la imagen.
+            para el conductor. Este tipo de artefactos realentizan enormemente la convergencia del modelo
+            y no son relevantes en un escenario real de conducción.
 
-    \item \textbf{Inclusión de Muestras Negativas:} Existen imágenes en el dataset original que no contienen señales de tráfico. 
+    \item \textbf{Inclusión de muestras negativas:} existen imágenes en el dataset original que no contienen señales de tráfico. 
             Estas imágenes son valiosas para el entrenamiento, ya que ayudan al modelo a aprender a distinguir entre 
             escenas con y sin señales. Por ello, incluimos estas imágenes en el dataset final, 
             generando archivos \texttt{.txt} vacíos para ellas.
@@ -940,8 +946,9 @@ para validación (\textit{Val}) acompañadas de sus correspondientes archivos de
 
 
 \subsection{Diseño de los entrenamientos}
-Dado que el entrenamiento de una red neuronal profunda desde cero requiere millones de imágenes y una potencia de computación masiva, hemos optado por la técnica de \textbf{Transfer Learning}.
-Este proceso consiste en inicializar el modelo con pesos pre-entrenados en el dataset COCO (que contiene 80 clases generales y millones de instancias). Para adaptarlo a nuestro dominio, realizamos un \textit{Fine-Tuning}:
+
+Para el reentrenamiento de los modelos YOLOv8, entrenados originalmente con el dataset COCO,
+hemos preparado el siguiente proceso de fine-tuning adaptado:
 
 \begin{enumerate}
     \item Se sustituye la última capa de la cabecera (diseñada para 80 clases) por una nueva capa inicializada aleatoriamente diseñada para detectar una única clase: \texttt{TrafficSign}.
@@ -953,18 +960,19 @@ Este proceso consiste en inicializar el modelo con pesos pre-entrenados en el da
 Durante la fase experimental, se han ajustado los siguientes hiperparámetros clave que determinan el comportamiento del entrenamiento:
 
 \begin{itemize}
-    \item \textbf{Tamaño de Imagen:} Se fijó en $1024 \times 1024$ píxeles para equilibrar la resolución suficiente para detectar señales pequeñas
+    \item \textbf{Tamaño de Imagen:} se fijó en $1024 \times 1024$ píxeles para equilibrar la resolución suficiente para detectar señales pequeñas
             y la velocidad de entrenaminento y uso de memoria.
     
-    \item \textbf{Épocas (\texttt{epochs}):} Representa el número de veces que el modelo ve el dataset completo. 
+    \item \textbf{Épocas (\texttt{epochs}):} el número de veces que el modelo ve el conjunto de test completo. 
      Se configuró un máximo de 200 épocas, utilizando un mecanismo de early stopping
      (paciencia = 15) para detener el entrenamiento si el modelo dejaba de mejorar, 
      evitando así el sobreajuste.
     
-    \item \textbf{Batch Size:} Define cuántas imágenes procesa la GPU simultáneamente antes de actualizar 
-    los pesos. Se ajustó en función de la capacidad de la memoria VRAM (16 para el modelo Nano, 8 para el Medium), buscando un equilibrio entre la estabilidad del gradiente y el uso de memoria.
+    \item \textbf{Batch size:} define cuántas imágenes procesa la GPU simultáneamente antes de actualizar 
+    los pesos. Se ajustó en función de la capacidad de la memoria VRAM (16 para el modelo Nano, 8 para el Medium), 
+    buscando un equilibrio entre la estabilidad del gradiente y el uso de memoria.
     
-    \item \textbf{Escala del Modelo:} en este proyecto comparamos las variantes 
+    \item \textbf{Escala del modelo:} en este proyecto comparamos las variantes 
     \textit{Nano} (la más ligera, $6.5\, MB$) y \textit{Medium} ($52.1\, MB$) para evaluar el impacto de la complejidad 
     del modelo en la capacidad de detección.
 
@@ -974,10 +982,12 @@ Durante la fase experimental, se han ajustado los siguientes hiperparámetros cl
 
 \subsubsection{Métricas de evaluación}
 
+\textit{Items de evaluación: \underline{\textbf{BT4b}}}
+
 Para evaluar el rendimiento de los modelos utilizamos
-el sistema de métricas integrado en YOLOv8, basado en las métricas estándar de la comunidad
+el sistema de métricas integrado en YOLOv8 basado en las métricas estándar de la comunidad
 de visión por computador, especialmente las definidas en el benchmark COCO (Common Objects in Context).
-Además, utilizamos la herramienta \texttt{Weights \& Biases} para registrar y visualizar las métricas. Estas
+Además, utilizamos la herramienta \texttt{Weights \& Biases} (\url{https://wandb.ai/}) para registrar y visualizar las métricas. Estas
 se dividen en dos tipos: funciones de pérdida (utilizadas para optimizar los pesos de la red) y
 métricas de rendimiento (utilizadas para evaluar la calidad de las predicciones).
 
@@ -985,10 +995,10 @@ Como función de pérdida, YOLOv8 utiliza una combinación ponderada de tres com
 \begin{itemize}
     \item \textbf{Pérdida de Caja (Box Loss):} mide el error en la localización de las coordenadas de las bounding
     boxes predichas respecto a las reales utilizando la función CIoU (Complete IoU). Es una métrica
-    que combina la superposición, la distancia entre centros y la proporción de aspecto.
+    que combina la superposición, la distancia entre centros y la proporción de aspecto de las cajas.
     \item \textbf{Pérdida de Clasificación (Cls Loss)}: función de pérdida estándar de entropía cruzada
     que mide el error en la predicción de la clase del objeto. Dado que trabajamos con una única clase,
-    esta pérdida tiene en solo tiene en cuenta la probabilidad asignada a la clase \texttt{TrafficSign}.
+    esta pérdida solo tiene en cuenta la probabilidad asignada a la clase \texttt{TrafficSign}.
     \item \textbf{Pérdida DFL (Distribution Focal Loss):} métrica específica de YOLOv8 que refina 
     la precisión de las coordenadas de las cajas predichas modelando una distribución de probabilidad 
     de los bordes. Utilizando una distribución de probabilidad en lugar de valores puntuales,
@@ -1017,8 +1027,8 @@ Se ha utilizando una GPU NVIDIA RTX 4090 con 24 GB de VRAM para el entrenamiento
 La progresión de las funciones de pérdida durante el entrenamiento se muestra en la Figura \ref{fig:loss_curves}.
 Se observa una disminución constante de las pérdidas DFL, de clasificación y de caja a lo largo de las épocas,
 lo que indica que ambos modelos aprenden a localizar correctamente las señales. 
-El modelo Medium (línea verde) reduce el error de manera más eficiente (con respecto a
-la cantidad de épocas) y alcanza pérdidas finales más bajas que el modelo Nano (línea azul). Esto sugiere,
+El modelo Medium (línea verde) reduce la pérdida de manera más eficiente (con respecto a
+la cantidad de épocas) y alcanza cotas finales más bajas que el modelo Nano (línea azul). Esto sugiere,
 como era previsible, una mayor capacidad de aprendizaje debido a su mayor complejidad.
 Las gráficas de validación confirman que no hay sobreajuste, ya que estas descienden en concordancia 
 con las de entrenamiento.
@@ -1096,6 +1106,8 @@ Sin embargo, es importante considerar el contexto: la detección de señales de 
 con la presencia de instancias muy pequeñas (señales a larga distancia) y en condiciones ambientales variadas (iluminación, oclusiones, ángulos de visión).
 
 \subsubsection{Comparación con los modelos base}
+
+\textit{Items de evaluación: \underline{\textbf{BT4g}}}
 
 Para evaluar el impacto del reentrenamiento, hemos comparado los modelos reentrenados con sus versiones base preentrenadas en COCO.
 La evolución de las métricas clave se muestra en la imagen \ref{img:metrics}.
@@ -1176,6 +1188,8 @@ cuatro clips cortos también extraídos de ZOD. Los resultados se muestran en el
 
 \subsubsection{Exportación y despliegue}
 
+\textit{Items de evaluación: \underline{\textbf{BT4r}}}
+
 Para evaluar la viabilidad del despliegue en entornos realistas (en dispositivos con recursos limitados),
 hemos exportado el modelo YOLOv8 Medium reentrenado al formato \texttt{ONNX} (Open Neural Network Exchange).
 Este formato es ampliamente compatible con diversas plataformas y frameworks de inferencia, facilitando su integración en aplicaciones móviles o embebidas.
@@ -1239,6 +1253,22 @@ fue de $6\times10^{-8}$ píxeles. Además, el número de detecciones fueron idé
 Esto confirma que la exportación a ONNX mantiene la integridad del modelo y sus capacidades predictivas,
 siendo la diferencia prácticamente despreciable y atribuible 
 a pequeñas variaciones numéricas inherentes a la representación en coma flotante.
+
+\subsection{Conclusiones BT4}
+
+Hemos implementado con éxito un sistema de detección de señales de tráfico basado en Deep Learning utilizando la arquitectura YOLOv8.
+Resulta fascinante ver cómo desde un entorno doméstico y con recursos limitados
+podemos reentrenar modelos de última generación que rivalizan con sistemas comerciales.
+Los resultados obtenidos demuestran la eficacia del enfoque de \textit{Fine-Tuning} para adaptar modelos preentrenados a tareas específicas,
+logrando un equilibrio adecuado entre precisión y velocidad de inferencia.
+
+El modelo YOLOv8 Medium reentrenado ha mostrado un rendimiento notable en la detección de señales de tráfico,
+superando significativamente al modelo Nano en todas las métricas clave. La capacidad de operar en tiempo
+real en hardware moderno abre la puerta a aplicaciones prácticas en sistemas de asistencia al conductor y vehículos autónomos.
+Además, la exportación exitosa a ONNX y la mejora en los tiempos de inferencia en CPU demuestran la viabilidad del despliegue en entornos con recursos limitados.
+No obstante, existen áreas de mejora, como la optimización del dataset de entrenamiento y la exploración de arquitecturas más avanzadas.
+Otra gran vía de mejora es la subclasificación de señales, que permitiría no solo detectar su presencia, sino también identificar su tipo específico, 
+pero los fallos de etiquetado en el dataset ZOD nos ha hecho descartar esta opción en esta ocasión.
 
 \clearpage
 
