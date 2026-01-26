@@ -1,22 +1,11 @@
-# Ajedrez en realidad aumentada
+# Prácticas de visión por computador.
 
-Proyecto de detección de señales de tráfico utilizando técnicas de visión artificial y aprendizaje automático.
+Contiene los siguientes proyectos independientes.
+
+- Detección de señales de tráfico utilizando técnicas de visión artificial y aprendizaje automático.
+- Simulación en realidad aumentada de partidas de ajedrez.
 
 ## Autores
 
 - Juan Diego Gallego Nicolás
 - Óscar Vera López
-
-## Requisitos
- 
- - (Opcional) Crear y activar un entorno virtual:
-```bash
-# Con venv:
-python -m venv .venv
-source .venv/bin/activate 
-
- - Instalar el paquete rara y dependencias en el entorno:
-```bash
-# Con pip:
-pip install -e .
-```
